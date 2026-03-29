@@ -4,7 +4,8 @@ import type {
   ExecutionGate, AgentMessage, MetierSkill,
   SpawnRequest, AgentHealth, AgentMetrics,
   ParsedPrd, ExecutionLayer, LayerDispatchPlan,
-  OrchestrationStart, OrchestrationRecordDb, McpSession
+  OrchestrationStart, OrchestrationRecordDb, McpSession,
+  ChairmanInput, ChairmanOutput
 } from '../models';
 
 // Session
@@ -187,3 +188,22 @@ export const emitGateEvent = (gateId: string, slotId: string, operationType: str
 
 export const flushPtyBuffers = () =>
   invoke<void>('flush_pty_buffers');
+
+// Cockpit Logic (PRD-18)
+export const cockpitActivate = (sessionId: string) =>
+  invoke<ChairmanOutput>('cockpit_activate', { sessionId });
+
+export const cockpitPause = (sessionId: string) =>
+  invoke<void>('cockpit_pause', { sessionId });
+
+export const cockpitResume = (sessionId: string) =>
+  invoke<void>('cockpit_resume', { sessionId });
+
+export const cockpitClose = (sessionId: string) =>
+  invoke<void>('cockpit_close', { sessionId });
+
+export const cockpitReadContext = (projectPath: string) =>
+  invoke<ChairmanInput>('cockpit_read_context', { projectPath });
+
+export const cockpitDeliberate = (projectPath: string) =>
+  invoke<ChairmanOutput>('cockpit_deliberate', { projectPath });

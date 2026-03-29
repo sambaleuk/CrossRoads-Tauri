@@ -4,6 +4,7 @@ use crate::services::agent_lifecycle::{self, SpawnRequest, AgentHealth, HealthAl
 use crate::services::orchestration_engine;
 use crate::services::mcp_service;
 use crate::services::event_bus;
+use crate::services::cockpit_logic;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -395,4 +396,44 @@ pub fn emit_gate_event(gate_id: String, slot_id: String, operation_type: String,
 #[tauri::command]
 pub fn flush_pty_buffers() {
     event_bus::flush_pty_buffers();
+}
+
+// Cockpit logic commands (PRD-18)
+
+#[tauri::command]
+pub fn cockpit_activate(session_id: String) -> Result<cockpit_logic::ChairmanOutput, String> {
+    cockpit_logic::activate_session(&session_id)
+}
+
+#[tauri::command]
+pub fn cockpit_pause(session_id: String) -> Result<(), String> {
+    cockpit_logic::pause_session(&session_id)
+}
+
+#[tauri::command]
+pub fn cockpit_resume(session_id: String) -> Result<(), String> {
+    cockpit_logic::resume_session(&session_id)
+}
+
+#[tauri::command]
+pub fn cockpit_close(session_id: String) -> Result<(), String> {
+    cockpit_logic::close_session(&session_id)
+}
+
+#[tauri::command]
+pub fn cockpit_read_context(project_path: String) -> Result<cockpit_logic::ChairmanInput, String> {
+    cockpit_logic::read_project_context(&project_path)
+}
+
+#[tauri::command]
+pub fn cockpit_deliberate(project_path: String) -> cockpit_logic::ChairmanOutput {
+    let input = cockpit_logic::read_project_context(&project_path).unwrap_or(cockpit_logic::ChairmanInput {
+        project_path: project_path.clone(),
+        current_branch: "unknown".into(),
+        recent_commits: vec![],
+        branches: vec![],
+        prd_summary: None,
+        previous_session: None,
+    });
+    cockpit_logic::chairman_deliberate(&input)
 }

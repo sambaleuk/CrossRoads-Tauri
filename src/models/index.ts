@@ -271,6 +271,30 @@ export interface OrchestrationUpdatePayload {
   message?: string;
 }
 
+// PRD-18: Cockpit Logic types
+
+export interface ChairmanInput {
+  projectPath: string;
+  currentBranch: string;
+  recentCommits: Array<{ shortSha: string; message: string; author: string }>;
+  branches: string[];
+  prdSummary?: string;
+  previousSession?: { sessionId: string; status: string; slotCount: number };
+}
+
+export interface SlotAssignment {
+  slotIndex: number;
+  agentType: string;
+  skillName: string;
+  branchName: string;
+  taskDescription: string;
+}
+
+export interface ChairmanOutput {
+  brief: string;
+  assignments: SlotAssignment[];
+}
+
 export interface OrchestrationRecordDb {
   id: string;
   cockpitSessionId: string;

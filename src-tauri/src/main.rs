@@ -95,6 +95,13 @@ fn main() {
             commands::emit_log_entry,
             commands::emit_gate_event,
             commands::flush_pty_buffers,
+            // PRD-18: Cockpit Logic
+            commands::cockpit_activate,
+            commands::cockpit_pause,
+            commands::cockpit_resume,
+            commands::cockpit_close,
+            commands::cockpit_read_context,
+            commands::cockpit_deliberate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

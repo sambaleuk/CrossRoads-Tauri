@@ -6,3 +6,4 @@ pub mod agent_lifecycle;
 pub mod orchestration_engine;
 pub mod mcp_service;
 pub mod event_bus;
+pub mod cockpit_logic;
