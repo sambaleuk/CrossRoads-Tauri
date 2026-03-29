@@ -119,3 +119,39 @@ body {
 .xr-toast {
   animation: xr-fade-in 0.2s ease-out, xr-fade-in 0.2s ease-in 3s reverse forwards;
 }
+
+/* Settings form controls */
+.settings-input {
+  width: 100%;
+  background: var(--xr-bg-tertiary);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--xr-text-primary);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.settings-input:focus {
+  border-color: color-mix(in srgb, var(--xr-neon-green) 50%, transparent);
+}
+.settings-input::placeholder {
+  color: var(--xr-text-muted);
+}
+
+.settings-select {
+  width: 100%;
+  background: var(--xr-bg-tertiary);
+  border: 1px solid var(--xr-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--xr-text-primary);
+  outline: none;
+  cursor: pointer;
+}
+.settings-select:focus {
+  border-color: color-mix(in srgb, var(--xr-neon-green) 50%, transparent);
+}
