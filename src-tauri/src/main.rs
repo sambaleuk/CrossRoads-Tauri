@@ -44,6 +44,8 @@ fn main() {
             commands::fetch_messages,
             commands::create_skill,
             commands::find_skill,
+            commands::detect_cli_tools,
+            commands::find_loop_script,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

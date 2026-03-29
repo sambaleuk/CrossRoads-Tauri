@@ -1,4 +1,5 @@
 use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo};
+use crate::services::cli_detector;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 
 // Session commands
@@ -105,4 +106,15 @@ pub fn create_skill(name: String, family: String, skill_md_path: String, descrip
 #[tauri::command]
 pub fn find_skill(name: String) -> Result<Option<MetierSkill>, String> {
     skill_repo::find_by_name(&name).map_err(|e| e.to_string())
+}
+
+// CLI detection
+#[tauri::command]
+pub fn detect_cli_tools() -> Vec<cli_detector::CliStatus> {
+    cli_detector::detect_all()
+}
+
+#[tauri::command]
+pub fn find_loop_script(name: String) -> Option<String> {
+    cli_detector::find_loop_script(&name)
 }

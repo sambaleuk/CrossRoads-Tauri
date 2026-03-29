@@ -1,1 +1,2 @@
-// Business logic services — PRD-03+ will populate this
+pub mod process_runner;
+pub mod cli_detector;
