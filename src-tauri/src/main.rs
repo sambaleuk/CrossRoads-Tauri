@@ -136,6 +136,7 @@ fn main() {
             commands::check_budget,
             commands::get_cost_projection,
             commands::fetch_budget_alerts,
+            commands::route_model,
             // Phase 5: Heartbeat (PRD-37)
             commands::create_heartbeat,
             commands::create_scheduled_run,

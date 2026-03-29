@@ -285,6 +285,8 @@ export const createBudgetConfig = (sessionId: string, slotId?: string, budgetCen
 export const checkBudget = (slotId: string) => invoke<BudgetStatus>('check_budget', { slotId });
 export const getCostProjection = (sessionId: string) => invoke<CostProjection>('get_cost_projection', { sessionId });
 export const fetchBudgetAlerts = (configId: string) => invoke<BudgetAlert[]>('fetch_budget_alerts', { configId });
+export const routeModel = (slotId: string, complexity: string) =>
+  invoke<{ recommendedModel: string; provider: string; reason: string; estimatedCostCents: number; capabilityScore: number; budgetPressure: string }>('route_model', { slotId, complexity });
 
 // Phase 5: Heartbeat
 export const createHeartbeat = (sessionId: string, slotId?: string, intervalMs?: number) => invoke<HeartbeatConfig>('create_heartbeat', { sessionId, slotId, intervalMs });

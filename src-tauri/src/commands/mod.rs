@@ -656,6 +656,11 @@ pub fn fetch_budget_alerts(config_id: String) -> Result<Vec<budget_repo::BudgetA
     budget_repo::fetch_alerts(&config_id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn route_model(slot_id: String, complexity: String) -> Result<budget_engine::ModelRecommendation, String> {
+    budget_engine::route_model(&slot_id, &complexity)
+}
+
 // ── Phase 5: Heartbeat (PRD-37) ──
 
 #[tauri::command]
