@@ -5,7 +5,7 @@ import type {
   SpawnRequest, AgentHealth, AgentMetrics,
   ParsedPrd, ExecutionLayer, LayerDispatchPlan,
   OrchestrationStart, OrchestrationRecordDb, McpSession,
-  ChairmanInput, ChairmanOutput
+  ChairmanInput, ChairmanOutput, DangerousOperation, PolicyDecisionStr
 } from '../models';
 
 // Session
@@ -207,3 +207,19 @@ export const cockpitReadContext = (projectPath: string) =>
 
 export const cockpitDeliberate = (projectPath: string) =>
   invoke<ChairmanOutput>('cockpit_deliberate', { projectPath });
+
+// SafeExecutor (PRD-19)
+export const detectDangerousOps = (text: string) =>
+  invoke<DangerousOperation[]>('detect_dangerous_ops', { text });
+
+export const safeTriggerGate = (slotId: string, pattern: string, matchedText: string, riskLevel: string, description: string) =>
+  invoke<string>('safe_trigger_gate', { slotId, pattern, matchedText, riskLevel, description });
+
+export const safeApproveGate = (gateId: string, slotId: string, approvedBy: string) =>
+  invoke<void>('safe_approve_gate', { gateId, slotId, approvedBy });
+
+export const safeRejectGate = (gateId: string, slotId: string, reason: string) =>
+  invoke<void>('safe_reject_gate', { gateId, slotId, reason });
+
+export const evaluatePolicy = (riskLevel: string, pattern: string) =>
+  invoke<PolicyDecisionStr>('evaluate_policy', { riskLevel, pattern });

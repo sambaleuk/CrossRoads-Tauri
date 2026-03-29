@@ -102,6 +102,12 @@ fn main() {
             commands::cockpit_close,
             commands::cockpit_read_context,
             commands::cockpit_deliberate,
+            // PRD-19: SafeExecutor
+            commands::detect_dangerous_ops,
+            commands::safe_trigger_gate,
+            commands::safe_approve_gate,
+            commands::safe_reject_gate,
+            commands::evaluate_policy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

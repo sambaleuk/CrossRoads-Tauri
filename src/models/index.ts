@@ -295,6 +295,17 @@ export interface ChairmanOutput {
   assignments: SlotAssignment[];
 }
 
+// PRD-19: SafeExecutor types
+
+export interface DangerousOperation {
+  pattern: string;
+  matchedText: string;
+  riskLevel: string;
+  description: string;
+}
+
+export type PolicyDecisionStr = 'auto_approve' | 'require_dry_run' | 'require_human_approval';
+
 export interface OrchestrationRecordDb {
   id: string;
   cockpitSessionId: string;

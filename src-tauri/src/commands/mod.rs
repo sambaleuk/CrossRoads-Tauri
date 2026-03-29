@@ -5,6 +5,7 @@ use crate::services::orchestration_engine;
 use crate::services::mcp_service;
 use crate::services::event_bus;
 use crate::services::cockpit_logic;
+use crate::services::safe_executor;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -436,4 +437,37 @@ pub fn cockpit_deliberate(project_path: String) -> cockpit_logic::ChairmanOutput
         previous_session: None,
     });
     cockpit_logic::chairman_deliberate(&input)
+}
+
+// SafeExecutor commands (PRD-19)
+
+#[tauri::command]
+pub fn detect_dangerous_ops(text: String) -> Vec<safe_executor::DangerousOperation> {
+    safe_executor::detect_dangerous_ops(&text)
+}
+
+#[tauri::command]
+pub fn safe_trigger_gate(slot_id: String, pattern: String, matched_text: String, risk_level: String, description: String) -> Result<String, String> {
+    let op = safe_executor::DangerousOperation { pattern, matched_text, risk_level, description };
+    safe_executor::trigger_gate(&slot_id, &op, None)
+}
+
+#[tauri::command]
+pub fn safe_approve_gate(gate_id: String, slot_id: String, approved_by: String) -> Result<(), String> {
+    safe_executor::approve_gate(&gate_id, &slot_id, &approved_by, None)
+}
+
+#[tauri::command]
+pub fn safe_reject_gate(gate_id: String, slot_id: String, reason: String) -> Result<(), String> {
+    safe_executor::reject_gate(&gate_id, &slot_id, &reason, None)
+}
+
+#[tauri::command]
+pub fn evaluate_policy(risk_level: String, pattern: String) -> String {
+    let decision = safe_executor::evaluate_policy(&risk_level, &[], &pattern);
+    match decision {
+        safe_executor::PolicyDecision::AutoApprove => "auto_approve".into(),
+        safe_executor::PolicyDecision::RequireDryRun => "require_dry_run".into(),
+        safe_executor::PolicyDecision::RequireHumanApproval => "require_human_approval".into(),
+    }
 }
