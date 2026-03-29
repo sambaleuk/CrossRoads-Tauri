@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
-use crate::db::orchestration_repo;
+use crate::db::{orchestration_repo, learning_repo};
+use crate::services::{ml_trainer, conflict_prevention};
 
 // ── US-001: PRD Parser ──
 
@@ -305,7 +306,18 @@ pub fn start_orchestration(
 
     // Fresh start
     let prd = parse_prd(prd_path)?;
-    let layers = build_layers(&prd.stories)?;
+    let mut layers = build_layers(&prd.stories)?;
+
+    // WIRING 3: Conflict prevention before dispatch
+    let story_patterns: Vec<(String, Vec<String>)> = prd.stories.iter().map(|s| {
+        (s.id.clone(), s.tests.clone()) // Use test names as proxy for file patterns
+    }).collect();
+    let prevention = conflict_prevention::analyze_dispatch_plan(&story_patterns, &HashMap::new());
+    if !prevention.risky_pairs.is_empty() {
+        // Use resequenced layers instead
+        layers = prevention.recommended_resequencing;
+    }
+
     let layers_json = serde_json::to_string(&layers).map_err(|e| e.to_string())?;
 
     let record = orchestration_repo::create_record(
@@ -315,6 +327,27 @@ pub fn start_orchestration(
 
     let plans = create_dispatch_plans(&layers, 6);
     Ok((record.id, prd, layers, plans, 0))
+}
+
+/// WIRING 1: Auto-train ML models after orchestration completes.
+/// Call this when all stories in a session have finished.
+pub fn complete_orchestration_ml(session_id: &str, project_path: &str) {
+    let records = learning_repo::fetch_learning_records(session_id).unwrap_or_default();
+    if records.len() >= 10 {
+        let training_data: Vec<_> = records.iter().map(|r| {
+            (ml_trainer::StoryFeatures {
+                files_changed: r.files_changed as f64,
+                lines_added: r.lines_added as f64,
+                lines_removed: r.lines_removed as f64,
+                tests_run: r.tests_run as f64,
+                complexity_score: match r.story_complexity.as_str() {
+                    "simple" => 0.0, "moderate" => 1.0, "complex" => 2.0, _ => 3.0,
+                },
+            }, r.duration_ms as f64, vec![], r.story_complexity.clone(), r.conflicts_encountered > 0)
+        }).collect();
+        let models = ml_trainer::TrainedModels::train_from_records(&training_data);
+        let _ = models.save(project_path);
+    }
 }
 
 #[cfg(test)]

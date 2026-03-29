@@ -80,7 +80,19 @@ pub fn fetch_slots(session_id: String) -> Result<Vec<AgentSlot>, String> {
 // Cost commands
 #[tauri::command]
 pub fn record_usage(slot_id: String, provider: String, model: String, input_tokens: i64, output_tokens: i64) -> Result<CostEvent, String> {
-    cost_repo::record_usage(&slot_id, &provider, &model, input_tokens, output_tokens).map_err(|e| e.to_string())
+    let event = cost_repo::record_usage(&slot_id, &provider, &model, input_tokens, output_tokens).map_err(|e| e.to_string())?;
+
+    // WIRING 4: Check budget after recording cost
+    if let Ok(status) = budget_engine::check_budget(&slot_id) {
+        if status.status == "exceeded" {
+            let _ = slot_repo::update_slot(&slot_id, "paused", Some("Budget exceeded"));
+            event_bus::emit_agent_status(&slot_id, "paused", None, Some("Budget exceeded"), None);
+        } else if status.status == "warning" {
+            event_bus::emit_log("warn", "budget", &format!("Slot {} at {:.0}% of budget", slot_id, status.percent_used), Some(&slot_id));
+        }
+    }
+
+    Ok(event)
 }
 
 #[tauri::command]

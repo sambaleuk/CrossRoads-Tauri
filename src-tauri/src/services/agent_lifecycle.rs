@@ -3,9 +3,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use crate::db::{slot_repo, metrics_repo};
+use crate::db::{slot_repo, metrics_repo, learning_repo, memory_repo};
 use crate::services::loop_launcher::{self, LoopConfig};
 use crate::services::process_runner::ProcessRunner;
+use crate::services::learning_engine;
 
 // ── Types ──
 
@@ -190,6 +191,16 @@ impl AgentLifecycleManager {
                             actions: vec!["wait".into(), "reassign".into(), "abort".into()],
                             created_at: chrono::Utc::now().to_rfc3339(),
                         });
+                    }
+                }
+
+                // WIRING 5: Check for dangerous operations in PTY output
+                let dangerous = crate::services::safe_executor::detect_dangerous_ops(text);
+                if !dangerous.is_empty() {
+                    let risk = crate::services::safe_executor::highest_risk(&dangerous);
+                    let decision = crate::services::safe_executor::evaluate_policy(risk, &[], &dangerous[0].pattern);
+                    if decision == crate::services::safe_executor::PolicyDecision::RequireHumanApproval {
+                        let _ = crate::services::safe_executor::trigger_gate(&slot_id_for_output, &dangerous[0], None);
                     }
                 }
 
@@ -468,12 +479,29 @@ impl AgentLifecycleManager {
         self.emit_status_change(slot_id, "done");
 
         // Record metrics
-        let elapsed = {
+        let (elapsed, session_id) = {
             let agents = self.agents.lock().unwrap();
-            agents.get(slot_id).map(|a| a.started_at.elapsed().as_millis() as i64)
+            let elapsed = agents.get(slot_id).map(|a| a.started_at.elapsed().as_millis() as i64);
+            let sid = agents.get(slot_id).map(|a| a.spawn_request.session_id.clone());
+            (elapsed, sid)
         };
         if let Some(ms) = elapsed {
             let _ = metrics_repo::record_story_completed(slot_id, ms);
+        }
+
+        // WIRING 2: Extract memories from learning records
+        if let Some(ref sid) = session_id {
+            let records = learning_repo::fetch_learning_records(sid).unwrap_or_default();
+            for record in &records {
+                if record.tests_failed > 0 {
+                    let domain = learning_engine::categorize_story(&record.story_title, &[]);
+                    let _ = memory_repo::store_memory(
+                        &record.agent_type, &domain, "observation",
+                        &format!("Struggled with tests on {}: {} failed", record.story_title, record.tests_failed),
+                        0.7, Some(sid), Some(&record.story_id), "[]",
+                    );
+                }
+            }
         }
 
         // Remove from tracked agents

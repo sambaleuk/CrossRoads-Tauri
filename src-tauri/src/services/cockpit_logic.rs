@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use crate::db::{session_repo, slot_repo, gate_repo, skill_repo};
-use crate::services::{git_service, event_bus};
+use crate::db::{session_repo, slot_repo, gate_repo, skill_repo, config_snapshot_repo};
+use crate::services::{git_service, event_bus, org_chart};
 
 // ── US-001: Cockpit Lifecycle State Machine ──
 
@@ -273,6 +273,15 @@ pub fn conduct(session_id: &str, output: &ChairmanOutput) -> Result<(), String> 
         );
     }
 
+    // WIRING 7: Snapshot initial config
+    let config_data = serde_json::json!({
+        "slots": output.assignments.len(),
+        "brief": output.brief,
+    }).to_string();
+    let _ = config_snapshot_repo::create_snapshot(
+        Some(session_id), None, "session", &config_data, "system", Some("Session activated"),
+    );
+
     // 3. Transition to active (will check guard: at_least_one_slot_configured)
     transition(session_id, "slots_assigned")?;
 
@@ -299,6 +308,9 @@ pub fn activate_session(session_id: &str) -> Result<ChairmanOutput, String> {
 
     // 4. Conduct (create slots, transition to active)
     conduct(session_id, &output)?;
+
+    // WIRING 6: Cascade goals through org chart
+    let _ = org_chart::cascade_goals(session_id, &output.brief);
 
     Ok(output)
 }
