@@ -1,1 +1,9 @@
-// Rust model structs — PRD-01 US-003 will populate this
+pub mod enums;
+pub mod cockpit_session;
+pub mod agent_slot;
+pub mod metier_skill;
+pub mod agent_message;
+pub mod execution_gate;
+pub mod cost_event;
+pub mod worktree;
+pub mod orchestration_record;

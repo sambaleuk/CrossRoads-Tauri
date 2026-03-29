@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegui-dev/tauri-v2/main/core/tauri-config-schema/schema.json",
   "productName": "XRoads",
   "version": "0.1.0",
   "identifier": "io.neurogrid.xroads",
@@ -10,16 +9,13 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "title": "XRoads",
     "windows": [
       {
         "title": "XRoads Orchestrator",
         "width": 1400,
         "height": 900,
         "minWidth": 1000,
-        "minHeight": 700,
-        "decorations": true,
-        "resizable": true
+        "minHeight": 700
       }
     ],
     "security": {
