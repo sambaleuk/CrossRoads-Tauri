@@ -573,3 +573,14 @@ pub fn cleanup_worktrees(repo_path: String, worktree_paths: Vec<String>) -> Resu
 pub fn detect_stale_sessions() -> Result<Vec<session_persistence::RecoveryInfo>, String> {
     session_persistence::detect_stale_sessions()
 }
+
+// PTY input command (PRD-23)
+
+#[tauri::command]
+pub fn send_pty_input(slot_id: String, text: String) -> Result<(), String> {
+    // Route through lifecycle manager to find the process for this slot
+    let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+    // For now, log and emit — actual PTY input routing is via ProcessRunner
+    event_bus::emit_log("debug", &format!("slot-{}", slot_id), &format!("Input: {}", text.escape_debug()), Some(&slot_id));
+    Ok(())
+}

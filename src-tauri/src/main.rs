@@ -123,6 +123,8 @@ fn main() {
             commands::detect_orphaned_worktrees,
             commands::cleanup_worktrees,
             commands::detect_stale_sessions,
+            // PRD-23: Terminal PTY input
+            commands::send_pty_input,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

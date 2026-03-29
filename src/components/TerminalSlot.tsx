@@ -1,7 +1,8 @@
-
 import type { AgentSlot, UsageSummary } from '../models';
 import { StatusBadge } from './StatusBadge';
 import { CostBadge } from './CostBadge';
+import { SlotTerminal } from './SlotTerminal';
+import { useAppStore } from '../stores/appStore';
 
 const agentIcons: Record<string, string> = {
   claude: '🧠',
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function TerminalSlot({ slot, cost, isConfigured, onConfigure }: Props) {
+  const toggleExpandedSlot = useAppStore((s) => s.toggleExpandedSlot);
   if (!isConfigured) {
     return (
       <button
@@ -31,7 +33,10 @@ export function TerminalSlot({ slot, cost, isConfigured, onConfigure }: Props) {
   }
 
   return (
-    <div className="flex flex-col rounded-xl border border-gray-800 bg-gray-900/60 overflow-hidden min-h-[200px]">
+    <div
+      className="flex flex-col rounded-xl border border-gray-800 bg-gray-900/60 overflow-hidden min-h-[200px]"
+      onDoubleClick={() => toggleExpandedSlot(slot.id)}
+    >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800">
         <span className="text-[10px] font-bold font-mono text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">
@@ -63,9 +68,9 @@ export function TerminalSlot({ slot, cost, isConfigured, onConfigure }: Props) {
         )}
       </div>
 
-      {/* Terminal output area (placeholder — xterm.js in PRD-05+) */}
-      <div className="flex-1 bg-black/40 px-3 py-2 font-mono text-[10px] text-gray-500 min-h-[80px]">
-        <span className="animate-pulse">▊</span> Awaiting output...
+      {/* Terminal output area — xterm.js */}
+      <div className="flex-1 min-h-[80px]">
+        <SlotTerminal slotId={slot.id} />
       </div>
     </div>
   );

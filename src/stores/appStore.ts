@@ -28,6 +28,11 @@ interface AppState {
   toggleInspector: () => void;
   showChat: boolean;
   toggleChat: () => void;
+
+  // Single terminal mode (PRD-23)
+  expandedSlotId: string | null;
+  setExpandedSlotId: (id: string | null) => void;
+  toggleExpandedSlot: (id: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -52,4 +57,8 @@ export const useAppStore = create<AppState>((set) => ({
   toggleInspector: () => set((s) => ({ showInspector: !s.showInspector })),
   showChat: true,
   toggleChat: () => set((s) => ({ showChat: !s.showChat })),
+
+  expandedSlotId: null,
+  setExpandedSlotId: (id) => set({ expandedSlotId: id }),
+  toggleExpandedSlot: (id) => set((s) => ({ expandedSlotId: s.expandedSlotId === id ? null : id })),
 }));

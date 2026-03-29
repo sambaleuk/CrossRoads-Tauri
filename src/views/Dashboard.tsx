@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { TerminalSlot } from '../components/TerminalSlot';
+import { SlotTerminal } from '../components/SlotTerminal';
 import { NeonBrain } from '../components/NeonBrain';
 import { SynapseConnections } from '../components/SynapseConnections';
 import type { AgentSlot, AgentSlotStatus } from '../models';
@@ -48,7 +49,7 @@ function deriveBrainState(slots: AgentSlot[]): 'idle' | 'running' | 'merging' | 
 }
 
 export function Dashboard() {
-  const { slots: activeSlots, slotCosts } = useAppStore();
+  const { slots: activeSlots, slotCosts, expandedSlotId, setExpandedSlotId } = useAppStore();
   const displaySlots = activeSlots.length > 0 ? activeSlots : defaultSlots;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -82,6 +83,37 @@ export function Dashboard() {
   }));
 
   const connectionPoints = positions.map((p) => ({ x: p.cx, y: p.cy }));
+
+  // US-004: Single terminal expanded mode
+  const expandedSlot = expandedSlotId
+    ? displaySlots.find((s) => s.id === expandedSlotId)
+    : null;
+
+  if (expandedSlot) {
+    return (
+      <div ref={containerRef} className="flex-1 overflow-hidden relative flex flex-col">
+        {/* Header bar */}
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800 bg-gray-900/80">
+          <button
+            onClick={() => setExpandedSlotId(null)}
+            className="text-xs font-mono text-gray-400 hover:text-neon-green transition-colors"
+          >
+            ← Grid
+          </button>
+          <span className="text-xs font-bold font-mono text-gray-300">
+            SLOT #{expandedSlot.slotIndex + 1}
+          </span>
+          <span className="text-[10px] font-mono text-gray-500">
+            {expandedSlot.agentType} — {expandedSlot.branchName ?? 'no branch'}
+          </span>
+        </div>
+        {/* Full-size terminal */}
+        <div className="flex-1">
+          <SlotTerminal slotId={expandedSlot.id} isExpanded />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="flex-1 overflow-hidden relative">
