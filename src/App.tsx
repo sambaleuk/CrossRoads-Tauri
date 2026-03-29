@@ -4,11 +4,13 @@ import { Dashboard } from './views/Dashboard';
 import { ChatPanel } from './views/ChatPanel';
 import { GitPanel } from './views/GitPanel';
 import { CockpitPanel } from './views/CockpitPanel';
+import { CommandPalette, useCommandPalette } from './components/CommandPalette';
 import { useAppStore } from './stores/appStore';
 import { initEventListeners } from './services/eventBus';
 
 export default function App() {
   const { showCockpit, showInspector, showChat } = useAppStore();
+  const commandPalette = useCommandPalette();
 
   // Initialize event listeners on mount
   useEffect(() => {
@@ -46,6 +48,8 @@ export default function App() {
       </div>
 
       <BottomBar />
+
+      {commandPalette.isOpen && <CommandPalette onClose={commandPalette.close} />}
     </div>
   );
 }

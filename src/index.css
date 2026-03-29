@@ -2,8 +2,120 @@
 @tailwind components;
 @tailwind utilities;
 
+/* PRD-33: Dark theme CSS variables (matching Swift version) */
+:root {
+  --xr-bg-primary: #0a0a0f;
+  --xr-bg-secondary: #111118;
+  --xr-bg-tertiary: #1a1a24;
+  --xr-border: #2a2a36;
+  --xr-text-primary: #e4e4e7;
+  --xr-text-secondary: #a1a1aa;
+  --xr-text-muted: #52525b;
+  --xr-neon-green: #0DF170;
+  --xr-neon-blue: #00D4FF;
+  --xr-neon-purple: #8B5CF6;
+}
+
 body {
   margin: 0;
   font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
   -webkit-font-smoothing: antialiased;
+  background: var(--xr-bg-primary);
+  color: var(--xr-text-primary);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--xr-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a46;
+}
+
+/* PRD-33: Micro-animations */
+@keyframes xr-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes xr-slide-in-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes xr-slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes xr-scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes xr-glow-pulse {
+  0%, 100% { box-shadow: 0 0 4px var(--xr-neon-green); }
+  50% { box-shadow: 0 0 12px var(--xr-neon-green); }
+}
+
+@keyframes xr-skeleton {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.xr-animate-fade-in {
+  animation: xr-fade-in 0.2s ease-out;
+}
+
+.xr-animate-slide-right {
+  animation: xr-slide-in-right 0.2s ease-out;
+}
+
+.xr-animate-slide-left {
+  animation: xr-slide-in-left 0.2s ease-out;
+}
+
+.xr-animate-scale-in {
+  animation: xr-scale-in 0.15s ease-out;
+}
+
+.xr-animate-glow {
+  animation: xr-glow-pulse 2s ease-in-out infinite;
+}
+
+.xr-skeleton {
+  background: linear-gradient(90deg, var(--xr-bg-tertiary) 25%, var(--xr-border) 50%, var(--xr-bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: xr-skeleton 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+/* Slot card hover lift */
+.xr-slot-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.xr-slot-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Panel transitions */
+.xr-panel-enter {
+  animation: xr-slide-in-right 0.2s ease-out;
+}
+.xr-panel-enter-left {
+  animation: xr-slide-in-left 0.2s ease-out;
+}
+
+/* Toast notification */
+.xr-toast {
+  animation: xr-fade-in 0.2s ease-out, xr-fade-in 0.2s ease-in 3s reverse forwards;
 }
