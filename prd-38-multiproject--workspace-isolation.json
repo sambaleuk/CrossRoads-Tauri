@@ -1,0 +1,122 @@
+{
+  "$schema": "modragor-prd-v1",
+  "feature_name": "Multi-Project Workspaces + Isolation",
+  "description": "Run multiple projects simultaneously with full isolation — separate sessions, budgets, org charts, and agents per project. Paperclip calls this 'multi-company'. XRoads does it better: each project is a workspace with its own git context, PRD state, and cost tracking, but with a unified dashboard to monitor everything.",
+  "branch": "feat/38-multi-project",
+  "created_at": "2026-03-29",
+  "status": "pending",
+  "goals": [
+    "Multiple simultaneous projects with full isolation",
+    "Unified dashboard to monitor all workspaces",
+    "Per-workspace budgets, org charts, and agent pools",
+    "Cross-workspace agent migration (move an agent from project A to project B)",
+    "Workspace templates for quick project bootstrapping"
+  ],
+  "non_goals": [
+    "No multi-user/team collaboration (single-user desktop app)",
+    "No workspace nesting (flat list of workspaces)"
+  ],
+  "new_entities": {
+    "Workspace": {
+      "description": "A project workspace — isolates all orchestration state",
+      "fields": {
+        "id": "UUID PK",
+        "name": "String — display name (e.g. 'XRoads Tauri', 'My API')",
+        "projectPath": "String UNIQUE — root directory",
+        "color": "String — hex color for UI badge (#0DF170, #00D4FF, etc.)",
+        "icon": "String? — emoji or icon name",
+        "isActive": "Bool default false — currently focused workspace",
+        "maxSlots": "Int default 6 — max concurrent agents",
+        "totalBudgetCents": "Int? — workspace-level budget cap",
+        "metadata": "String? — JSON blob for extra config",
+        "lastAccessedAt": "DateTime",
+        "createdAt": "DateTime"
+      }
+    }
+  },
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "Workspace entity + DB migration",
+      "description": "Migration v12: workspace table. Each workspace maps 1:1 to a project directory. CockpitSession gains 'workspaceId' FK (nullable for backward compat, required for new sessions). CRUD repo: create, list, switch_active, update, delete. On workspace delete: close all sessions, cleanup worktrees, remove .crossroads/ data. Unique constraint on projectPath.",
+      "status": "pending",
+      "tests": [
+        "workspace created with project path",
+        "unique path constraint enforced",
+        "workspace delete cascades to sessions",
+        "switch_active deactivates others"
+      ],
+      "entity_touches": ["Workspace", "CockpitSession"],
+      "priority": "high"
+    },
+    {
+      "id": "US-002",
+      "title": "Workspace switcher + multi-dashboard",
+      "description": "UI: 1) Workspace sidebar — vertical list of workspace badges (color + icon + name + status indicator). Click to switch. Plus button to add workspace (directory picker). Right-click for rename/delete/settings. 2) Multi-dashboard mode — split dashboard showing miniature NeonBrain per workspace with slot count and status. Click to focus. 3) Keyboard shortcut: Cmd+1-9 to switch workspace. 4) Active workspace indicator in toolbar. 5) All panels (chat, cockpit, inspector) scope to active workspace automatically.",
+      "status": "pending",
+      "tests": [
+        "workspace sidebar renders all workspaces",
+        "switching workspace updates all panels",
+        "Cmd+1 switches to first workspace",
+        "multi-dashboard shows all workspace brains"
+      ],
+      "entity_touches": ["Workspace"],
+      "priority": "high"
+    },
+    {
+      "id": "US-003",
+      "title": "Workspace isolation guarantees",
+      "description": "Hard isolation between workspaces: 1) Separate session state — each workspace has its own active session. 2) Separate agent pool — slots only see their workspace's worktrees. 3) Separate budget tracking — costs isolated per workspace. 4) Separate org chart — role hierarchies independent. 5) Separate event streams — PTY output, status events, logs filtered by workspace. 6) Separate MCP sessions — each workspace has its own .crossroads/sessions.json. No cross-contamination between workspaces. All queries scoped by workspaceId.",
+      "status": "pending",
+      "tests": [
+        "session A cannot see workspace B's slots",
+        "cost events isolated per workspace",
+        "PTY output filtered by active workspace",
+        "org roles scoped to workspace session"
+      ],
+      "entity_touches": ["Workspace", "CockpitSession", "AgentSlot"],
+      "priority": "high"
+    },
+    {
+      "id": "US-004",
+      "title": "Cross-workspace agent migration",
+      "description": "Move an agent from one workspace to another (e.g. a backend agent finished project A, reassign to project B). Migration flow: 1) Pause agent in source workspace. 2) Generate handoff context (progress, learnings, skill state). 3) Create new slot in target workspace with same agent type + skill. 4) Inject handoff context into new AGENT.md. 5) Start agent in target workspace. 6) Close slot in source workspace. All via a single 'migrate_agent' Tauri command. UI: drag agent from workspace sidebar to another workspace.",
+      "status": "pending",
+      "tests": [
+        "agent migrated with handoff context",
+        "source slot closed after migration",
+        "target slot starts with correct skill",
+        "migration preserves agent metrics"
+      ],
+      "entity_touches": ["Workspace", "AgentSlot"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-005",
+      "title": "Workspace templates",
+      "description": "Pre-configured workspace templates for common project types. Templates: 1) Rust CLI (backend + testing roles, cargo-aware skills). 2) React App (frontend + backend + testing, npm-aware). 3) Full Stack (all roles, git-flow branching strategy). 4) Data Pipeline (ETL + testing + review roles). Each template pre-configures: max slots, default org chart template, budget preset, recommended skills, .crossroads/config.json. Workspace template selector on creation. Custom templates saved per-user in ~/.xroads/workspace-templates/.",
+      "status": "pending",
+      "tests": [
+        "React App template creates correct config",
+        "custom template saved and listed",
+        "template applies on workspace creation"
+      ],
+      "entity_touches": ["Workspace"],
+      "priority": "low"
+    },
+    {
+      "id": "US-006",
+      "title": "Unified monitoring dashboard",
+      "description": "Global overview across all workspaces: 1) Total agents running across all workspaces. 2) Total cost across all workspaces (with per-workspace breakdown). 3) Global health status — any workspace in error state surfaces immediately. 4) Global budget consumption bar. 5) Activity feed — last 20 events across all workspaces (color-coded by workspace). 6) Quick-action menu: pause all, stop all, snapshot all. Accessible via Cmd+0 or workspace sidebar 'All' tab.",
+      "status": "pending",
+      "tests": [
+        "total agents count correct across workspaces",
+        "global cost sums all workspace costs",
+        "error workspace surfaces in global status",
+        "pause all stops all workspace agents"
+      ],
+      "entity_touches": ["Workspace", "CockpitSession"],
+      "priority": "medium"
+    }
+  ]
+}

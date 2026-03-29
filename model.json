@@ -1,0 +1,145 @@
+{
+  "$schema": "modragor-model-v1",
+  "project": "xroads-tauri",
+  "description": "XRoads cross-platform — multi-agent orchestration platform (Tauri + React + Rust)",
+  "version": "0.1.0",
+  "entities": {
+    "CockpitSession": {
+      "description": "Root aggregate for a cockpit orchestration session",
+      "fields": {
+        "id": { "type": "UUID", "primary": true },
+        "projectPath": { "type": "String", "index": true },
+        "status": { "type": "CockpitSessionStatus", "default": "idle" },
+        "chairmanBrief": { "type": "String?" },
+        "createdAt": { "type": "DateTime" },
+        "updatedAt": { "type": "DateTime" }
+      },
+      "relations": {
+        "slots": { "type": "hasMany", "target": "AgentSlot", "cascade": "delete" }
+      },
+      "indexes": [
+        { "columns": ["projectPath", "status"], "unique": true, "condition": "status != 'closed'" }
+      ]
+    },
+    "AgentSlot": {
+      "description": "Agent instance within a cockpit session (1 slot = 1 agent on 1 worktree)",
+      "fields": {
+        "id": { "type": "UUID", "primary": true },
+        "cockpitSessionId": { "type": "UUID", "fk": "CockpitSession" },
+        "slotIndex": { "type": "Int", "index": true },
+        "status": { "type": "AgentSlotStatus", "default": "empty", "index": true },
+        "agentType": { "type": "String" },
+        "worktreePath": { "type": "String?" },
+        "branchName": { "type": "String?" },
+        "skillId": { "type": "UUID?", "fk": "MetierSkill" },
+        "currentTask": { "type": "String?" },
+        "createdAt": { "type": "DateTime" },
+        "updatedAt": { "type": "DateTime" }
+      },
+      "relations": {
+        "messages": { "type": "hasMany", "target": "AgentMessage", "fk": "fromSlotId", "cascade": "delete" },
+        "gates": { "type": "hasMany", "target": "ExecutionGate", "cascade": "delete" },
+        "costs": { "type": "hasMany", "target": "CostEvent", "cascade": "delete" }
+      }
+    },
+    "MetierSkill": {
+      "description": "Skill definition (code-architect, finance-analyst, etc.)",
+      "fields": {
+        "id": { "type": "UUID", "primary": true },
+        "name": { "type": "String", "unique": true },
+        "family": { "type": "String", "index": true },
+        "skillMdPath": { "type": "String" },
+        "requiredMcps": { "type": "String?" },
+        "description": { "type": "String?" },
+        "createdAt": { "type": "DateTime" }
+      }
+    },
+    "AgentMessage": {
+      "description": "Inter-slot message on the cockpit message bus",
+      "fields": {
+        "id": { "type": "UUID", "primary": true },
+        "content": { "type": "String" },
+        "messageType": { "type": "MessageType" },
+        "fromSlotId": { "type": "UUID", "fk": "AgentSlot", "index": true },
+        "toSlotId": { "type": "UUID?", "fk": "AgentSlot", "index": true },
+        "isBroadcast": { "type": "Bool", "default": false },
+        "readAt": { "type": "DateTime?" },
+        "createdAt": { "type": "DateTime", "index": true }
+      }
+    },
+    "ExecutionGate": {
+      "description": "SafeExecutor approval gate — blocks dangerous operations until human approves",
+      "fields": {
+        "id": { "type": "UUID", "primary": true },
+        "agentSlotId": { "type": "UUID", "fk": "AgentSlot" },
+        "status": { "type": "ExecutionGateStatus", "default": "pending", "index": true },
+        "operationType": { "type": "String" },
+        "operationPayload": { "type": "String" },
+        "riskLevel": { "type": "RiskLevel", "index": true },
+        "estimatedImpact": { "type": "String?" },
+        "approvedBy": { "type": "String?" },
+        "approvedAt": { "type": "DateTime?" },
+        "deniedReason": { "type": "String?" },
+        "rollbackPayload": { "type": "String?" },
+        "auditEntry": { "type": "String?" },
+        "createdAt": { "type": "DateTime", "index": true },
+        "updatedAt": { "type": "DateTime" }
+      }
+    },
+    "CostEvent": {
+      "description": "Token usage and cost tracking per API call",
+      "fields": {
+        "id": { "type": "UUID", "primary": true },
+        "agentSlotId": { "type": "UUID", "fk": "AgentSlot", "index": true },
+        "provider": { "type": "String" },
+        "model": { "type": "String" },
+        "inputTokens": { "type": "Int" },
+        "outputTokens": { "type": "Int" },
+        "costCents": { "type": "Int", "default": 0 },
+        "createdAt": { "type": "DateTime", "index": true }
+      }
+    },
+    "Worktree": {
+      "description": "Git worktree managed by the orchestrator",
+      "fields": {
+        "id": { "type": "UUID", "primary": true },
+        "path": { "type": "String" },
+        "branch": { "type": "String" },
+        "agentId": { "type": "String?" },
+        "status": { "type": "String", "default": "active" },
+        "createdAt": { "type": "DateTime" }
+      }
+    },
+    "OrchestrationRecord": {
+      "description": "History record of a completed orchestration run",
+      "fields": {
+        "id": { "type": "UUID", "primary": true },
+        "startedAt": { "type": "DateTime" },
+        "finishedAt": { "type": "DateTime?" },
+        "prdName": { "type": "String" },
+        "resultSummary": { "type": "String" },
+        "mergedBranches": { "type": "JSON" },
+        "conflicts": { "type": "JSON" },
+        "totalStories": { "type": "Int" },
+        "completedStories": { "type": "Int" },
+        "totalCostCents": { "type": "Int", "default": 0 }
+      }
+    }
+  },
+  "enums": {
+    "CockpitSessionStatus": ["idle", "initializing", "active", "paused", "closed"],
+    "AgentSlotStatus": ["empty", "provisioning", "running", "waiting_approval", "paused", "done", "error"],
+    "ExecutionGateStatus": ["pending", "dry_run", "awaiting_approval", "executing", "completed", "rejected", "rolled_back"],
+    "RiskLevel": ["low", "medium", "high", "critical"],
+    "MessageType": ["status", "log", "error", "blocker", "chairman_brief", "handoff", "delegation", "report", "peer_request", "escalation"],
+    "AgentType": ["claude", "gemini", "codex"],
+    "RoleType": ["ceo", "tech_lead", "backend_engineer", "frontend_engineer", "qa_engineer", "reviewer", "devops", "architect", "custom"],
+    "AuthorityLevel": ["full", "limited", "readonly"],
+    "BudgetAlertType": ["warning", "hard_stop", "daily_exceeded", "story_exceeded", "projection_exceeded"],
+    "TriggerType": ["cron", "git_push", "file_change", "manual", "prd_update"],
+    "RuntimeType": ["cli", "http", "stdio", "docker", "script"],
+    "AgentCapability": ["code_edit", "test_run", "git_ops", "file_read", "terminal", "web_browse", "mcp_tools"],
+    "ConfigType": ["session", "org_chart", "budget", "policy", "skill_map", "runtime_map", "full"],
+    "StoryComplexity": ["simple", "moderate", "complex", "critical"]
+  }
+}

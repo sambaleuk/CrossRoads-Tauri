@@ -1,0 +1,130 @@
+{
+  "$schema": "modragor-prd-v1",
+  "feature_name": "Heartbeat System + Autonomous Scheduling",
+  "description": "Persistent agent wake cycles with scheduled orchestration runs, cron-based triggers, and session state survival across app restarts. Paperclip's heartbeat is generic — XRoads heartbeat is code-aware: it checks git status, PRD progress, test results, and merge readiness on each pulse.",
+  "branch": "feat/37-heartbeat",
+  "created_at": "2026-03-29",
+  "status": "pending",
+  "goals": [
+    "Scheduled agent wake cycles (heartbeat) with configurable intervals",
+    "Autonomous orchestration runs triggered by cron or events",
+    "State persistence across app restarts (agents resume where they left off)",
+    "Code-aware heartbeat: git status + PRD progress + test results on each pulse",
+    "Unattended operation — XRoads runs overnight, user reviews in the morning"
+  ],
+  "non_goals": [
+    "No cloud scheduler — everything runs locally on the user's machine",
+    "No daemon mode on first release — app must be open (daemon in v2)"
+  ],
+  "new_entities": {
+    "HeartbeatConfig": {
+      "description": "Heartbeat schedule configuration for a slot or session",
+      "fields": {
+        "id": "UUID PK",
+        "sessionId": "UUID FK CockpitSession",
+        "slotId": "UUID? FK AgentSlot — null means session-level heartbeat",
+        "intervalMs": "Int — heartbeat interval in milliseconds (default 30000)",
+        "enabled": "Bool default true",
+        "lastPulseAt": "DateTime? — last successful heartbeat timestamp",
+        "lastPulseResult": "String? — JSON summary of last pulse result",
+        "consecutiveFailures": "Int default 0",
+        "maxFailures": "Int default 5 — pause after N consecutive failures",
+        "createdAt": "DateTime",
+        "updatedAt": "DateTime"
+      }
+    },
+    "ScheduledRun": {
+      "description": "A scheduled orchestration run (cron-triggered or event-triggered)",
+      "fields": {
+        "id": "UUID PK",
+        "projectPath": "String — target project",
+        "prdPath": "String — PRD to execute",
+        "cronExpression": "String? — e.g. '0 2 * * *' for daily at 2am",
+        "triggerType": "TriggerType — cron, git_push, file_change, manual",
+        "triggerConfig": "String? — JSON config for trigger (e.g. branch filter for git_push)",
+        "roleTemplateName": "String? — org chart template to use",
+        "budgetPreset": "String? — budget preset name",
+        "enabled": "Bool default true",
+        "lastRunAt": "DateTime?",
+        "lastRunResult": "String?",
+        "nextRunAt": "DateTime?",
+        "createdAt": "DateTime"
+      }
+    }
+  },
+  "new_enums": {
+    "TriggerType": ["cron", "git_push", "file_change", "manual", "prd_update"]
+  },
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "Heartbeat engine + DB migration",
+      "description": "Migration v11: heartbeat_config + scheduled_run tables. Heartbeat engine: Tokio interval timer per slot. On each pulse: 1) Check slot process alive (PID exists). 2) Poll status.json for progress. 3) Read git status (uncommitted changes, new commits). 4) Parse progress.txt for iteration results. 5) Check budget remaining. 6) Emit heartbeat event with full status payload. 7) Update lastPulseAt + lastPulseResult. On failure: increment consecutiveFailures, emit health alert at maxFailures, auto-pause slot. Configurable interval per slot (default 30s, min 5s, max 300s).",
+      "status": "pending",
+      "tests": [
+        "heartbeat fires at configured interval",
+        "pulse result includes git status + progress",
+        "consecutive failures trigger auto-pause",
+        "heartbeat respects enabled flag"
+      ],
+      "entity_touches": ["HeartbeatConfig"],
+      "priority": "high"
+    },
+    {
+      "id": "US-002",
+      "title": "Code-aware pulse checks",
+      "description": "Each heartbeat pulse runs code-specific checks beyond simple process monitoring. Checks: 1) git_diff_stat — files changed since last pulse (detect agent progress). 2) test_result_check — look for test output in logs, extract pass/fail count. 3) prd_story_status — re-parse prd.json to detect story completions since last pulse. 4) merge_readiness — check if branch is mergeable (no conflicts with main). 5) dependency_check — verify node_modules/Cargo.lock not corrupted. Pulse result JSON: {alive, gitChanges, testsPassed, testsFailed, storiesCompleted, mergeable, errors}. This is what makes XRoads heartbeat 10x better than Paperclip's generic alive/dead check.",
+      "status": "pending",
+      "tests": [
+        "pulse detects new git commits since last check",
+        "test results extracted from logs",
+        "story completion detected from prd.json",
+        "merge readiness checked against main"
+      ],
+      "entity_touches": ["HeartbeatConfig"],
+      "priority": "high"
+    },
+    {
+      "id": "US-003",
+      "title": "Scheduled run engine",
+      "description": "Execute orchestration runs on schedule. Cron parser: parse standard cron expressions (minute hour day month weekday). Scheduler: Tokio cron timer that checks nextRunAt every 60 seconds. On trigger: 1) Create new CockpitSession. 2) Apply role template. 3) Apply budget preset. 4) Start orchestration with PRD. 5) Save run result. 6) Calculate next run. Event triggers: watch file system for changes to prd.json (file_change trigger), watch git for new commits to target branch (git_push trigger). All triggers go through same execution pipeline. Scheduled runs persist across app restart (loaded from DB on startup).",
+      "status": "pending",
+      "tests": [
+        "cron expression parsed correctly",
+        "scheduled run fires at correct time",
+        "git_push trigger detects new commits",
+        "run persists and resumes after restart"
+      ],
+      "entity_touches": ["ScheduledRun", "CockpitSession"],
+      "priority": "high"
+    },
+    {
+      "id": "US-004",
+      "title": "Session state recovery on heartbeat",
+      "description": "When app restarts (crash or intentional): 1) Load all HeartbeatConfig from DB. 2) For each enabled config with a running session: check if agent process still alive. 3) If process alive: resume heartbeat monitoring. 4) If process dead: check last progress, attempt re-spawn with handoff context. 5) Re-spawned agent receives AGENT.md with: previous progress, last completed story, recovery flag. This enables unattended overnight operation — agents can crash and auto-recover without human intervention.",
+      "status": "pending",
+      "tests": [
+        "dead process detected on restart",
+        "agent re-spawned with recovery context",
+        "recovered agent resumes from last story",
+        "heartbeat resumes for alive processes"
+      ],
+      "entity_touches": ["HeartbeatConfig", "AgentSlot"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-005",
+      "title": "Heartbeat dashboard + schedule manager UI",
+      "description": "UI components: 1) Heartbeat status per slot — last pulse time, pulse result summary, consecutive failures, enable/disable toggle. 2) Pulse timeline — vertical timeline of heartbeat results per slot (last 50 pulses). Green/yellow/red dots based on pulse health. 3) Schedule manager — CRUD for scheduled runs, cron expression builder (friendly presets: 'Every night at 2am', 'Every hour', 'On git push'), trigger type selector, PRD file picker, template + budget preset selectors. 4) Next run countdown timer. 5) Run history list with results.",
+      "status": "pending",
+      "tests": [
+        "heartbeat timeline renders correctly",
+        "schedule CRUD works",
+        "cron presets generate correct expressions",
+        "countdown timer accurate"
+      ],
+      "entity_touches": ["HeartbeatConfig", "ScheduledRun"],
+      "priority": "medium"
+    }
+  ]
+}

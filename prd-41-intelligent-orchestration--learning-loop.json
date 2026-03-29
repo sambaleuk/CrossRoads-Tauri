@@ -1,0 +1,155 @@
+{
+  "$schema": "modragor-prd-v1",
+  "feature_name": "Intelligent Orchestration + Learning Loop",
+  "description": "XRoads learns from every orchestration run and gets smarter over time. Adaptive slot assignment based on historical agent performance. Automatic model selection based on task complexity. Story time estimation. Conflict prediction. This is the moat that Paperclip can NEVER build — because they don't have code-level telemetry. XRoads has 110 tests worth of code-aware infrastructure feeding this learning loop.",
+  "branch": "feat/41-learning-loop",
+  "created_at": "2026-03-29",
+  "status": "pending",
+  "goals": [
+    "Learn from every orchestration run (agent performance, story difficulty, failure patterns)",
+    "Adaptive slot assignment: best agent for each story type based on history",
+    "Model selection advisor: Opus for complex stories, Sonnet for simple ones",
+    "Story time estimation based on similar past stories",
+    "Conflict prediction: warn before assigning overlapping file areas to different agents",
+    "Post-orchestration retro: auto-generated lessons learned"
+  ],
+  "non_goals": [
+    "No cloud telemetry — all learning is local to the user's machine",
+    "No model fine-tuning — this is about orchestration intelligence, not model training"
+  ],
+  "new_entities": {
+    "LearningRecord": {
+      "description": "Telemetry from a completed story execution — feeds the learning loop",
+      "fields": {
+        "id": "UUID PK",
+        "sessionId": "UUID FK CockpitSession",
+        "storyId": "String — PRD story ID",
+        "storyTitle": "String",
+        "storyComplexity": "StoryComplexity — simple, moderate, complex, critical",
+        "agentType": "String",
+        "runtimeId": "UUID? FK AgentRuntime",
+        "model": "String? — specific model used (opus, sonnet, etc)",
+        "durationMs": "Int — wall clock time to complete",
+        "costCents": "Int — total cost for this story",
+        "filesChanged": "Int — number of files modified",
+        "linesAdded": "Int",
+        "linesRemoved": "Int",
+        "testsRun": "Int",
+        "testsPassed": "Int",
+        "testsFailed": "Int",
+        "conflictsEncountered": "Int",
+        "retriesNeeded": "Int",
+        "success": "Bool",
+        "failureReason": "String?",
+        "filePatterns": "String — JSON array of file extensions touched (e.g. ['.rs', '.ts', '.sql'])",
+        "createdAt": "DateTime"
+      }
+    },
+    "PerformanceProfile": {
+      "description": "Aggregated performance profile per agent type per task category",
+      "fields": {
+        "id": "UUID PK",
+        "agentType": "String",
+        "runtimeId": "UUID? FK AgentRuntime",
+        "taskCategory": "String — e.g. 'backend_rust', 'frontend_react', 'testing', 'db_migration'",
+        "totalExecutions": "Int",
+        "successRate": "Float",
+        "avgDurationMs": "Int",
+        "avgCostCents": "Int",
+        "avgFilesChanged": "Float",
+        "avgTestPassRate": "Float",
+        "conflictRate": "Float",
+        "lastUpdatedAt": "DateTime"
+      }
+    }
+  },
+  "new_enums": {
+    "StoryComplexity": ["simple", "moderate", "complex", "critical"]
+  },
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "LearningRecord + PerformanceProfile DB migration + telemetry collector",
+      "description": "Migration v15: learning_record + performance_profile tables. Telemetry collector: after each story completion in orchestration engine, auto-create LearningRecord with: timing (started_at from metrics, ended now), cost (sum of CostEvents during story), git stats (git diff --stat), test results (parse from logs), files touched (extensions from diff). PerformanceProfile: auto-update on each LearningRecord insert. Categorize story by file patterns: .rs/.toml = 'backend_rust', .ts/.tsx = 'frontend_react', .sql = 'db_migration', test in filename = 'testing'. Profiles accumulate running averages.",
+      "status": "pending",
+      "tests": [
+        "learning record created after story completion",
+        "performance profile updated with running averages",
+        "file patterns categorized correctly",
+        "git stats extracted from diff"
+      ],
+      "entity_touches": ["LearningRecord", "PerformanceProfile"],
+      "priority": "high"
+    },
+    {
+      "id": "US-002",
+      "title": "Adaptive slot assignment advisor",
+      "description": "When chairman deliberates slot assignments (PRD-18 cockpit_logic), consult PerformanceProfile to recommend best agent for each story. Algorithm: 1) Categorize each PRD story by file patterns in description/title. 2) Look up PerformanceProfile for each agent type in that category. 3) Rank agents by: success_rate * 0.4 + (1/avg_cost) * 0.3 + (1/avg_duration) * 0.3. 4) Assign highest-ranked agent to each story, respecting slot availability. 5) If no historical data: fall back to default assignment. Output: ChairmanOutput with data-driven assignments + confidence score per assignment. UI: show recommendation with confidence bar (e.g. 'Claude recommended for backend_rust (92% confidence based on 47 runs)').",
+      "status": "pending",
+      "tests": [
+        "agent ranked correctly by composite score",
+        "no history falls back to default",
+        "confidence score calculated from sample size",
+        "recommendation shown in chairman output"
+      ],
+      "entity_touches": ["PerformanceProfile", "OrgRole"],
+      "priority": "high"
+    },
+    {
+      "id": "US-003",
+      "title": "Model selection advisor",
+      "description": "Recommend the optimal model tier for each story based on complexity. Complexity scoring: 1) Count dependencies (more deps = more complex). 2) Count test requirements (more tests = more complex). 3) Historical: similar stories that failed on Sonnet but succeeded on Opus = complex. 4) File scope: multi-file stories more complex than single-file. Scoring: simple (0-2 score) → Haiku/Sonnet, moderate (3-5) → Sonnet, complex (6-8) → Opus, critical (9+) → Opus with human review. Output: per-story model recommendation with estimated cost. Saves money: simple CRUD stories don't need Opus. User can override per-story.",
+      "status": "pending",
+      "tests": [
+        "simple story recommends Sonnet",
+        "complex story recommends Opus",
+        "historical failure escalates recommendation",
+        "cost estimate calculated per recommendation"
+      ],
+      "entity_touches": ["LearningRecord", "PerformanceProfile"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-004",
+      "title": "Story time estimation",
+      "description": "Estimate completion time for each story before orchestration starts. Based on: 1) Historical avg_duration for same category + agent type. 2) Complexity adjustment (complex stories take 2-3x simple). 3) Dependency depth (deeper layers take longer due to context switches). 4) Total story count discount (agent 'warms up' — first story takes longer). Output: per-story ETA + total orchestration ETA. Progress bar uses these estimates for accurate % complete. ETAs update in real-time as stories complete (recalculate remaining). UI: 'Estimated completion: 2h 15m' in cockpit header.",
+      "status": "pending",
+      "tests": [
+        "ETA calculated from historical data",
+        "complexity adjusts estimate correctly",
+        "ETA recalculates as stories complete",
+        "total ETA shown in cockpit"
+      ],
+      "entity_touches": ["LearningRecord", "PerformanceProfile"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-005",
+      "title": "Conflict prediction engine",
+      "description": "Before dispatching parallel stories, predict git conflicts. Algorithm: 1) Analyze story descriptions for file mentions. 2) Use historical file_patterns from LearningRecords to predict which files each story will touch. 3) If two parallel stories are predicted to touch same files: flag conflict risk. 4) Risk levels: low (different directories), medium (same directory, different files), high (same file predicted). 5) Mitigation suggestions: 'Assign US-003 and US-004 to same agent' or 'Sequence US-003 before US-004'. Wire into orchestration dispatch: auto-move conflicting stories to same layer (sequenced) or same slot. UI: conflict prediction matrix shown before orchestration starts.",
+      "status": "pending",
+      "tests": [
+        "overlapping file patterns flagged as conflict",
+        "same-directory flagged as medium risk",
+        "conflicting stories moved to same layer",
+        "prediction matrix renders correctly"
+      ],
+      "entity_touches": ["LearningRecord"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-006",
+      "title": "Post-orchestration retro + learning dashboard",
+      "description": "Auto-generated retrospective after each orchestration completes. Retro includes: 1) Story-by-story performance table (duration, cost, pass/fail, agent used). 2) Agent leaderboard (which agent performed best this run). 3) Anomalies: stories that took 3x+ the average, unexpected failures, high conflict rates. 4) Recommendations: 'Consider using Claude for backend_rust stories (15% faster than Gemini in your history)'. 5) Trend charts: cost per story over time, success rate over time, avg duration over time. Retro saved as markdown in .crossroads/retros/retro-{date}.md. Also accessible via 'History' tab in cockpit. Learning dashboard: global view across all orchestrations with aggregate trends.",
+      "status": "pending",
+      "tests": [
+        "retro generated after orchestration",
+        "anomalies detected correctly",
+        "recommendations based on profiles",
+        "retro saved as markdown file"
+      ],
+      "entity_touches": ["LearningRecord", "PerformanceProfile", "OrchestrationRecord"],
+      "priority": "medium"
+    }
+  ]
+}

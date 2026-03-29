@@ -1,0 +1,138 @@
+{
+  "$schema": "modragor-prd-v1",
+  "feature_name": "Budget Control + Cost Governance",
+  "description": "Per-agent and per-session budget caps with auto-throttle, hard stops, cost projections, and governance alerts. Goes far beyond Paperclip's flat monthly budgets — XRoads budgets are story-aware, time-aware, and tied to the orchestration layer.",
+  "branch": "feat/36-budget-control",
+  "created_at": "2026-03-29",
+  "status": "pending",
+  "goals": [
+    "Per-slot and per-session budget caps with configurable thresholds",
+    "Auto-throttle at warning level, auto-pause at hard cap",
+    "Cost projection based on historical burn rate",
+    "Budget tied to PRD stories (cost-per-story estimation)",
+    "Visual budget dashboard with burn-down chart"
+  ],
+  "non_goals": [
+    "No billing integration — XRoads tracks costs, user pays providers directly",
+    "No multi-currency — everything in USD cents"
+  ],
+  "new_entities": {
+    "BudgetConfig": {
+      "description": "Budget configuration for a session or slot",
+      "fields": {
+        "id": "UUID PK",
+        "sessionId": "UUID FK CockpitSession",
+        "slotId": "UUID? FK AgentSlot — null means session-level budget",
+        "budgetCents": "Int — hard cap in cents",
+        "warningThresholdPct": "Int — percentage at which to warn (default 80)",
+        "hardStopEnabled": "Bool — auto-pause slot/session at 100%",
+        "throttleEnabled": "Bool — reduce request frequency at warning threshold",
+        "dailyLimitCents": "Int? — optional daily spending cap",
+        "perStoryLimitCents": "Int? — optional per-story cap",
+        "createdAt": "DateTime",
+        "updatedAt": "DateTime"
+      }
+    },
+    "BudgetAlert": {
+      "description": "Alert generated when budget threshold crossed",
+      "fields": {
+        "id": "UUID PK",
+        "budgetConfigId": "UUID FK BudgetConfig",
+        "alertType": "BudgetAlertType — warning, hard_stop, daily_exceeded, story_exceeded, projection_exceeded",
+        "currentSpendCents": "Int",
+        "budgetCents": "Int",
+        "percentUsed": "Float",
+        "message": "String",
+        "acknowledged": "Bool default false",
+        "createdAt": "DateTime"
+      }
+    }
+  },
+  "new_enums": {
+    "BudgetAlertType": ["warning", "hard_stop", "daily_exceeded", "story_exceeded", "projection_exceeded"]
+  },
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "BudgetConfig + BudgetAlert DB migration",
+      "description": "Migration v10: budget_config table with session/slot FK, threshold fields. budget_alert table with config FK, alert metadata. Indexes on sessionId, slotId. CRUD repos for both. Default budget config created when session activates (configurable global default). Cascade delete with session.",
+      "status": "pending",
+      "tests": [
+        "budget_config created with session",
+        "alerts persisted correctly",
+        "cascade delete works"
+      ],
+      "entity_touches": ["BudgetConfig", "BudgetAlert"],
+      "priority": "high"
+    },
+    {
+      "id": "US-002",
+      "title": "Cost monitoring daemon",
+      "description": "Background monitor that checks cost vs budget after every CostEvent. On each cost recording: 1) Calculate total spend for slot + session. 2) Compare against BudgetConfig thresholds. 3) At warning threshold: emit budget_warning event + create BudgetAlert + emit Tauri event for UI. 4) At hard stop: auto-pause the slot (transition to paused), create hard_stop alert, emit event. 5) Daily limit check: track daily aggregates, reset at midnight UTC. 6) Per-story limit: track cost since last story completion. Wire into existing record_usage command — cost check runs synchronously after insert.",
+      "status": "pending",
+      "tests": [
+        "warning alert at 80% spend",
+        "hard stop pauses slot at 100%",
+        "daily limit resets at midnight",
+        "per-story limit tracked correctly"
+      ],
+      "entity_touches": ["BudgetConfig", "BudgetAlert", "CostEvent", "AgentSlot"],
+      "priority": "high"
+    },
+    {
+      "id": "US-003",
+      "title": "Cost projection engine",
+      "description": "Project future costs based on historical burn rate. Inputs: current spend, time elapsed, stories completed vs total. Projection methods: 1) Linear (spend/time * remaining time). 2) Story-based (avg cost/story * remaining stories). 3) Weighted (blend of linear + story-based). Output: projected total cost, projected time to budget exhaustion, projected cost at orchestration completion. Emit projection_exceeded alert if projected total > budget. Expose via Tauri command for UI consumption. Recalculate on every cost event.",
+      "status": "pending",
+      "tests": [
+        "linear projection correct with sample data",
+        "story-based projection accounts for varying story costs",
+        "projection alert fires when over budget trajectory",
+        "projection updates on each cost event"
+      ],
+      "entity_touches": ["BudgetConfig", "CostEvent", "AgentMetrics"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-004",
+      "title": "Throttle mechanism",
+      "description": "When warning threshold reached, reduce agent request frequency. Throttle modes: 1) Delay injection — add sleep between loop iterations (2x normal sleep). 2) Model downgrade suggestion — suggest switching from Opus to Sonnet (cheaper model, agent_lifecycle failover mechanism). 3) Story prioritization — pause low-priority stories, continue high-priority only. Throttle is reversible — if spend drops below threshold (e.g. projection recalculates lower), auto-resume normal mode. Throttle state tracked on AgentSlot (new field: throttleLevel 0/1/2/3).",
+      "status": "pending",
+      "tests": [
+        "throttle activates at warning threshold",
+        "sleep delay doubles in throttle mode",
+        "model downgrade suggested (not forced)",
+        "throttle releases when projection improves"
+      ],
+      "entity_touches": ["AgentSlot", "BudgetConfig"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-005",
+      "title": "Budget dashboard UI",
+      "description": "Visual budget panel in cockpit: 1) Session-level budget bar (green/yellow/red fill). 2) Per-slot budget bars with agent icon. 3) Burn rate indicator ($/hour, $/story). 4) Projection line chart (actual spend vs projected vs budget cap). 5) Cost breakdown by provider/model (pie chart). 6) Alert history timeline. 7) Budget config editor (inline edit caps, thresholds). All real-time via cost-updated events. Compact mode for toolbar badge (just $ amount + color).",
+      "status": "pending",
+      "tests": [
+        "budget bar renders correctly",
+        "projection chart updates in real-time",
+        "config editor saves changes",
+        "toolbar badge shows correct color"
+      ],
+      "entity_touches": ["BudgetConfig", "BudgetAlert", "CostEvent"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-006",
+      "title": "Budget templates + presets",
+      "description": "Pre-configured budget presets: 1) Frugal ($5 session, $1/slot, Sonnet-only). 2) Standard ($25 session, $5/slot, mixed models). 3) Performance ($100 session, $20/slot, Opus allowed). 4) Unlimited (no caps, monitoring only). Budget preset selector in session activation dialog. Custom presets saved per-project in .crossroads/budget-presets.json. Preset includes: all BudgetConfig fields + recommended model strategy.",
+      "status": "pending",
+      "tests": [
+        "frugal preset enforces $5 cap",
+        "custom preset saved and restored",
+        "preset applies on session activation"
+      ],
+      "entity_touches": ["BudgetConfig"],
+      "priority": "low"
+    }
+  ]
+}

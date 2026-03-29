@@ -1,0 +1,177 @@
+{
+  "$schema": "modragor-prd-v1",
+  "feature_name": "Agnostic Runtime + Universal Agent Protocol",
+  "description": "Support any agent runtime that speaks the XRoads Agent Protocol (XAP) — not just Claude/Gemini/Codex CLI. Custom agents via HTTP webhooks, stdin/stdout protocol, Python scripts, Docker containers, or any executable. Paperclip is 'agent-agnostic' but has no code awareness. XRoads is agent-agnostic AND code-aware — every custom agent gets the same deep git/PRD/worktree integration.",
+  "branch": "feat/39-agnostic-runtime",
+  "created_at": "2026-03-29",
+  "status": "pending",
+  "goals": [
+    "Universal agent protocol (XAP) that any runtime can implement",
+    "Support: CLI processes, HTTP webhooks, stdin/stdout, Docker, Python scripts",
+    "Custom agent registration + configuration",
+    "Same code-aware context injection for ALL agent types",
+    "Agent marketplace foundation (community-contributed adapters)"
+  ],
+  "non_goals": [
+    "No remote agent execution (agents run locally or via user's own infra)",
+    "No agent training/fine-tuning — XRoads orchestrates, not trains"
+  ],
+  "new_entities": {
+    "AgentRuntime": {
+      "description": "A registered agent runtime — defines how to communicate with an agent",
+      "fields": {
+        "id": "UUID PK",
+        "name": "String UNIQUE — display name (e.g. 'Claude Code', 'My Python Agent')",
+        "runtimeType": "RuntimeType enum — cli, http, stdio, docker, script",
+        "command": "String? — CLI: executable path, Script: interpreter + path",
+        "url": "String? — HTTP: webhook endpoint",
+        "dockerImage": "String? — Docker: image name:tag",
+        "healthCheckCommand": "String? — command to verify agent is operational",
+        "configSchema": "String? — JSON Schema for agent-specific config",
+        "configDefaults": "String? — JSON defaults for agent config",
+        "capabilities": "String — JSON array of capabilities: ['code_edit', 'test_run', 'git_ops', 'file_read', 'terminal']",
+        "icon": "String? — emoji or icon",
+        "color": "String? — hex color for UI",
+        "isBuiltin": "Bool default false",
+        "isEnabled": "Bool default true",
+        "createdAt": "DateTime"
+      }
+    }
+  },
+  "new_enums": {
+    "RuntimeType": ["cli", "http", "stdio", "docker", "script"],
+    "AgentCapability": ["code_edit", "test_run", "git_ops", "file_read", "terminal", "web_browse", "mcp_tools"]
+  },
+  "protocol_spec": {
+    "name": "XRoads Agent Protocol (XAP)",
+    "version": "1.0",
+    "description": "Lightweight protocol for agent-orchestrator communication. All runtimes must implement these 5 methods.",
+    "methods": {
+      "xap.initialize": {
+        "description": "Initialize agent with context",
+        "params": {
+          "sessionId": "string",
+          "slotIndex": "number",
+          "worktreePath": "string",
+          "agentMdContent": "string — full AGENT.md content",
+          "prdContent": "string — PRD JSON",
+          "skillContent": "string? — injected skill",
+          "config": "object? — agent-specific config from AgentRuntime.configDefaults"
+        },
+        "returns": {"ready": "boolean", "capabilities": "string[]"}
+      },
+      "xap.execute_story": {
+        "description": "Execute a single user story",
+        "params": {"storyId": "string", "title": "string", "description": "string", "tests": "string[]"},
+        "returns": {"status": "completed|failed|blocked", "summary": "string", "filesChanged": "string[]", "testsRun": "number", "testsPassed": "number"}
+      },
+      "xap.heartbeat": {
+        "description": "Health check + progress report",
+        "params": {},
+        "returns": {"alive": "boolean", "progress": "number?", "currentTask": "string?", "errors": "string[]"}
+      },
+      "xap.abort": {
+        "description": "Graceful shutdown",
+        "params": {"reason": "string"},
+        "returns": {"acknowledged": "boolean"}
+      },
+      "xap.handoff": {
+        "description": "Generate handoff context for migration/recovery",
+        "params": {"maxTokens": "number"},
+        "returns": {"context": "string", "completedStories": "string[]", "pendingWork": "string?"}
+      }
+    },
+    "transport": {
+      "cli": "Stdin/stdout JSON-RPC (one JSON line per message)",
+      "http": "POST to agent URL with JSON body, JSON response",
+      "stdio": "Same as CLI but for non-CLI executables",
+      "docker": "Docker exec with stdin/stdout JSON-RPC",
+      "script": "Execute script with environment variables, read stdout JSON"
+    }
+  },
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "AgentRuntime entity + DB migration + built-in runtimes",
+      "description": "Migration v13: agent_runtime table. Register 3 built-in runtimes on startup: 1) 'Claude Code' (cli, command=nexus-loop, capabilities=[code_edit, test_run, git_ops, file_read, terminal, mcp_tools]). 2) 'Gemini CLI' (cli, command=gemini-loop, capabilities=[code_edit, test_run, file_read]). 3) 'Codex CLI' (cli, command=codex-loop, capabilities=[code_edit, test_run, file_read]). CRUD repo. AgentSlot gains optional 'runtimeId' FK (nullable for backward compat, defaults to built-in based on agentType). Existing agentType field preserved for display.",
+      "status": "pending",
+      "tests": [
+        "3 built-in runtimes registered on startup",
+        "custom runtime created via CRUD",
+        "agentSlot links to runtime",
+        "runtime capabilities queryable"
+      ],
+      "entity_touches": ["AgentRuntime", "AgentSlot"],
+      "priority": "high"
+    },
+    {
+      "id": "US-002",
+      "title": "XAP transport layer",
+      "description": "Implement XAP communication for each transport type: 1) CLI transport: spawn process, communicate via stdin/stdout JSON lines (reuse ProcessRunner). 2) HTTP transport: async HTTP client (reqwest), POST JSON to agent URL, parse response. 3) stdio transport: spawn executable, pipe JSON through stdin/stdout (similar to CLI but without loop script wrapper). 4) Docker transport: docker run with --rm, pipe via stdin/stdout. 5) Script transport: execute with environment vars (XROADS_SESSION_ID, XROADS_SLOT_INDEX, XROADS_WORKTREE, XROADS_PRD, XROADS_STORY_ID), parse stdout JSON. Each transport implements trait XapTransport with methods: initialize, execute_story, heartbeat, abort, handoff. Timeout handling per transport (configurable, default 30s for heartbeat, 600s for execute_story).",
+      "status": "pending",
+      "tests": [
+        "CLI transport sends/receives JSON correctly",
+        "HTTP transport posts and parses response",
+        "Docker transport runs container and communicates",
+        "timeout fires on unresponsive agent"
+      ],
+      "entity_touches": ["AgentRuntime"],
+      "priority": "high"
+    },
+    {
+      "id": "US-003",
+      "title": "Universal agent spawner",
+      "description": "Upgrade agent_lifecycle.rs spawn_agent to use AgentRuntime. Flow: 1) Resolve runtime from slot's runtimeId (or infer from agentType for backward compat). 2) Generate AGENT.md context (same as before — all agents get code-aware context). 3) Call xap.initialize via appropriate transport. 4) If runtime supports 'terminal' capability, wire PTY output to event bus. 5) If runtime is HTTP, start heartbeat polling loop. 6) Track agent in lifecycle manager with transport reference. Backward compatible — existing claude/gemini/codex slots continue to work via built-in runtimes.",
+      "status": "pending",
+      "tests": [
+        "CLI runtime spawns correctly (backward compat)",
+        "HTTP runtime initializes via POST",
+        "all agents receive same AGENT.md context",
+        "non-terminal runtimes still report progress"
+      ],
+      "entity_touches": ["AgentRuntime", "AgentSlot"],
+      "priority": "high"
+    },
+    {
+      "id": "US-004",
+      "title": "Custom agent registration UI",
+      "description": "Settings panel section for managing agent runtimes: 1) List of registered runtimes (built-in + custom) with enable/disable toggle. 2) 'Add Agent' dialog: name, type selector (CLI/HTTP/Docker/Script), command/URL/image input, capability checkboxes, icon picker, color picker. 3) Health check button — runs healthCheckCommand and shows result. 4) Config editor — JSON editor for agent-specific config using configSchema. 5) Import/export runtimes as JSON (for sharing). 6) Agent appears in slot config dialog's agent type selector alongside built-in types.",
+      "status": "pending",
+      "tests": [
+        "custom agent created via dialog",
+        "health check runs and shows result",
+        "custom agent appears in slot config",
+        "import/export round-trips correctly"
+      ],
+      "entity_touches": ["AgentRuntime"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-005",
+      "title": "Agent adapter SDK scaffold",
+      "description": "Create a minimal SDK/template for building custom XAP-compatible agents. 1) Python template: xroads_agent.py with XapAgent base class, method stubs for all 5 XAP methods, example implementation. 2) Node.js template: xroads-agent.js with same structure. 3) Shell template: xroads-agent.sh with environment variable parsing and JSON output. 4) Each template includes: README with protocol docs, example PRD, test harness that simulates XRoads calls. Templates bundled in app resources and copyable via 'Create Agent Template' button. This makes it trivially easy for anyone to create a custom XRoads agent.",
+      "status": "pending",
+      "tests": [
+        "Python template runs and responds to all 5 XAP methods",
+        "Node.js template responds correctly",
+        "Shell template parses env vars and outputs JSON",
+        "template copy creates files in target dir"
+      ],
+      "entity_touches": [],
+      "priority": "medium"
+    },
+    {
+      "id": "US-006",
+      "title": "Runtime capability negotiation",
+      "description": "When assigning a runtime to a role/slot, validate that runtime capabilities match role requirements. Role 'backend_engineer' needs: [code_edit, test_run, git_ops]. If assigned runtime only has [code_edit], show warning and list missing capabilities. Orchestration engine uses capabilities to decide: which stories a runtime can handle, whether to skip test-related stories for non-test-capable agents, whether to require a review pass by a review-capable agent. Capability matrix visible in org chart (green check / red X per capability per role).",
+      "status": "pending",
+      "tests": [
+        "capability mismatch warns user",
+        "orchestration skips stories for incapable agents",
+        "capability matrix renders in org chart"
+      ],
+      "entity_touches": ["AgentRuntime", "OrgRole"],
+      "priority": "low"
+    }
+  ]
+}

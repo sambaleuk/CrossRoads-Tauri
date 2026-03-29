@@ -1,0 +1,137 @@
+{
+  "$schema": "modragor-prd-v1",
+  "feature_name": "Org Chart + Role Hierarchy",
+  "description": "Hierarchical role system with reporting lines, goal cascading, and role-based skill assignment. Unlike Paperclip's generic company metaphor, XRoads roles are deeply integrated with code awareness — each role understands repos, files, branches, and PRDs natively.",
+  "branch": "feat/35-org-chart",
+  "created_at": "2026-03-29",
+  "status": "pending",
+  "goals": [
+    "Hierarchical role system with goal cascading and reporting lines",
+    "Roles deeply tied to code-aware orchestration (not just task assignment)",
+    "Chairman becomes CEO — all existing cockpit logic upgraded",
+    "Visual org chart in UI with live status per node"
+  ],
+  "non_goals": [
+    "No generic business roles (marketing, sales) — XRoads is code-first",
+    "No separate role for non-coding tasks — everything maps to code operations"
+  ],
+  "new_entities": {
+    "OrgRole": {
+      "description": "A role in the orchestration hierarchy — maps to a slot or virtual supervisor",
+      "fields": {
+        "id": "UUID PK",
+        "sessionId": "UUID FK CockpitSession",
+        "name": "String — e.g. 'Tech Lead', 'Backend Engineer', 'QA Lead'",
+        "roleType": "RoleType enum — ceo, lead, engineer, reviewer, qa",
+        "parentRoleId": "UUID? FK OrgRole — reporting line (null = root/CEO)",
+        "assignedSlotId": "UUID? FK AgentSlot — physical slot assignment",
+        "goalDescription": "String — cascaded goal from parent",
+        "skillNames": "JSON String[] — required skills for this role",
+        "authority": "AuthorityLevel enum — full, limited, readonly",
+        "createdAt": "DateTime",
+        "updatedAt": "DateTime"
+      }
+    }
+  },
+  "new_enums": {
+    "RoleType": ["ceo", "tech_lead", "backend_engineer", "frontend_engineer", "qa_engineer", "reviewer", "devops", "architect", "custom"],
+    "AuthorityLevel": ["full", "limited", "readonly"]
+  },
+  "state_machine": {
+    "name": "OrgRoleLifecycle",
+    "initial": "unassigned",
+    "states": ["unassigned", "assigned", "active", "suspended", "completed"],
+    "transitions": [
+      {"from": "unassigned", "event": "assign_slot", "to": "assigned", "guard": "slot_available"},
+      {"from": "assigned", "event": "activate", "to": "active"},
+      {"from": "active", "event": "suspend", "to": "suspended"},
+      {"from": "suspended", "event": "resume", "to": "active"},
+      {"from": "active", "event": "complete", "to": "completed"}
+    ]
+  },
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "OrgRole entity + DB migration",
+      "description": "Create org_role table (v9 migration). Fields: id, sessionId, name, roleType, parentRoleId (self-referencing FK), assignedSlotId, goalDescription, skillNames (JSON), authority, timestamps. Index on sessionId, parentRoleId. Constraint: max 1 CEO per session. CRUD repo with tree traversal queries (get_subtree, get_ancestors, get_siblings).",
+      "status": "pending",
+      "tests": [
+        "org_role table created with self-referencing FK",
+        "max 1 CEO per session enforced",
+        "tree traversal returns correct hierarchy",
+        "cascade delete removes children when parent deleted"
+      ],
+      "entity_touches": ["OrgRole"],
+      "priority": "high"
+    },
+    {
+      "id": "US-002",
+      "title": "Role template system",
+      "description": "Pre-built role templates for common team structures. Templates: Solo Dev (1 role), Duo (lead + engineer), Squad (lead + 2 engineers + QA), Full Team (CEO/architect + 2 leads + 3 engineers + reviewer). Each template defines: role names, types, hierarchy, default skills, authority levels. Templates stored as JSON in bundled resources. Custom template creation + save. Template auto-populates org chart on session activation.",
+      "status": "pending",
+      "tests": [
+        "Squad template creates 4 roles with correct hierarchy",
+        "custom template saved and reloaded",
+        "template populates org chart on activate"
+      ],
+      "entity_touches": ["OrgRole"],
+      "priority": "high"
+    },
+    {
+      "id": "US-003",
+      "title": "Goal cascading engine",
+      "description": "CEO goal = session-level objective (e.g. 'Implement auth system'). Leads decompose into sub-goals (e.g. 'Backend API', 'Frontend forms', 'Tests'). Engineers receive atomic goals mapped to PRD stories. Goal flow: CEO.goal → Lead.goal → Engineer.goal. Chairman deliberation (PRD-18) now uses org chart to distribute goals instead of flat slot assignment. Goals persist in OrgRole.goalDescription. Goal completion bubbles up — when all children complete, parent auto-completes.",
+      "status": "pending",
+      "tests": [
+        "CEO goal cascades to leads",
+        "lead goals map to PRD stories for engineers",
+        "child completion bubbles to parent",
+        "chairman uses org chart for delegation"
+      ],
+      "entity_touches": ["OrgRole", "CockpitSession"],
+      "priority": "high"
+    },
+    {
+      "id": "US-004",
+      "title": "Authority-based gate routing",
+      "description": "When a SafeExecutor gate fires, route approval based on authority hierarchy. Low/medium risk: auto-approved if role has 'full' authority. High risk: escalate to parent role (lead approves engineer's dangerous op). Critical risk: escalate to CEO/root role. Authority inheritance: child roles inherit parent's approval unless overridden. This replaces flat 'require_human_approval' with org-aware routing. If no parent available, fall back to human approval.",
+      "status": "pending",
+      "tests": [
+        "low risk auto-approved by full-authority role",
+        "high risk escalated to parent lead",
+        "critical escalated to CEO",
+        "no parent falls back to human"
+      ],
+      "entity_touches": ["OrgRole", "ExecutionGate"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-005",
+      "title": "Org chart UI component",
+      "description": "Visual tree rendering of org hierarchy in cockpit panel. Each node shows: role name, agent type icon, slot status badge, current task, cost badge. Connections: solid lines for active reporting, dashed for inactive. Node colors match agent type (claude green, gemini blue, codex purple). Click node to expand slot details. Drag-and-drop to reassign slots between roles. Real-time status updates via event bus. Collapse/expand subtrees.",
+      "status": "pending",
+      "tests": [
+        "tree renders correct hierarchy",
+        "node status updates in real-time",
+        "drag-drop reassigns slot",
+        "subtree collapse works"
+      ],
+      "entity_touches": ["OrgRole"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-006",
+      "title": "Inter-role communication channels",
+      "description": "Typed message channels between roles based on hierarchy. Channels: report_up (child → parent status update), delegate_down (parent → child task assignment), peer (sibling → sibling coordination), broadcast (CEO → all). Messages route via existing AgentMessage but with new MessageType values: 'delegation', 'report', 'peer_request', 'escalation'. Role-aware message filtering in chat panel. Automatic status reports: each role sends progress report to parent every N iterations.",
+      "status": "pending",
+      "tests": [
+        "delegate_down message reaches correct child",
+        "report_up reaches parent only",
+        "broadcast reaches all roles",
+        "auto status report sent on iteration"
+      ],
+      "entity_touches": ["OrgRole", "AgentMessage"],
+      "priority": "medium"
+    }
+  ]
+}

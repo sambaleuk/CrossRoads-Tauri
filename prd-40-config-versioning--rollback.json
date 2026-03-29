@@ -1,0 +1,111 @@
+{
+  "$schema": "modragor-prd-v1",
+  "feature_name": "Config Versioning + Rollback",
+  "description": "Full version control for all orchestration configuration — session configs, org charts, budget presets, skill assignments, and policy rules. Every config change is snapshotted and rollbackable. Paperclip has basic config versioning — XRoads does it with git-native diffing and branch-level granularity.",
+  "branch": "feat/40-config-versioning",
+  "created_at": "2026-03-29",
+  "status": "pending",
+  "goals": [
+    "Every config change creates an immutable snapshot",
+    "Rollback to any previous config version instantly",
+    "Git-native diffing between config versions",
+    "Config inheritance: workspace defaults → session overrides → slot overrides",
+    "Config as code: export/import as YAML/JSON, version in git"
+  ],
+  "non_goals": [
+    "No multi-user conflict resolution (single-user app)",
+    "No real-time collaborative config editing"
+  ],
+  "new_entities": {
+    "ConfigSnapshot": {
+      "description": "An immutable snapshot of configuration state",
+      "fields": {
+        "id": "UUID PK",
+        "sessionId": "UUID? FK CockpitSession — null for workspace-level configs",
+        "workspaceId": "UUID? FK Workspace",
+        "configType": "ConfigType enum — session, org_chart, budget, policy, skill_map, full",
+        "version": "Int — auto-incrementing per (sessionId, configType)",
+        "data": "String — JSON blob of the full config at this version",
+        "diff": "String? — JSON diff from previous version",
+        "changedBy": "String — 'user', 'system', 'auto-save', agent ID",
+        "changeReason": "String? — human-readable description of what changed",
+        "createdAt": "DateTime"
+      }
+    }
+  },
+  "new_enums": {
+    "ConfigType": ["session", "org_chart", "budget", "policy", "skill_map", "runtime_map", "full"]
+  },
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "ConfigSnapshot entity + DB migration + snapshot engine",
+      "description": "Migration v14: config_snapshot table. Auto-incrementing version per (sessionId, configType) combo. Snapshot engine: on any config change, auto-create snapshot. Config sources to snapshot: 1) Session config (status, chairman brief, slot assignments). 2) Org chart (all OrgRole records serialized). 3) Budget config (all BudgetConfig records). 4) Policy rules (SafeExecutor overrides). 5) Skill map (slot → skill assignments). 6) Runtime map (slot → agent runtime assignments). 7) Full snapshot (all of the above in one blob). Diff computation: JSON diff between current and previous version (add/remove/change fields). Repo: create_snapshot, list_versions, get_snapshot, get_diff, get_latest.",
+      "status": "pending",
+      "tests": [
+        "snapshot created on config change",
+        "version auto-increments",
+        "diff computed correctly between versions",
+        "get_latest returns most recent"
+      ],
+      "entity_touches": ["ConfigSnapshot"],
+      "priority": "high"
+    },
+    {
+      "id": "US-002",
+      "title": "Rollback engine",
+      "description": "Restore configuration to any previous snapshot version. Rollback flow: 1) Load target snapshot data. 2) Parse JSON into config objects. 3) Apply: update session, recreate org roles, update budget configs, update policy overrides, update skill assignments. 4) Create NEW snapshot with changeReason 'Rollback to v{N}'. 5) Emit config-rollback event for UI. Rollback safety: before rollback, create a snapshot of CURRENT state (so you can undo the undo). Rollback scope: can rollback individual config types (just budget, just org chart) or full. Never delete snapshots — history is immutable.",
+      "status": "pending",
+      "tests": [
+        "rollback restores previous config state",
+        "current state snapshotted before rollback",
+        "individual config type rollback works",
+        "rollback creates new version (not overwrite)"
+      ],
+      "entity_touches": ["ConfigSnapshot"],
+      "priority": "high"
+    },
+    {
+      "id": "US-003",
+      "title": "Config inheritance chain",
+      "description": "Three-level config inheritance: Workspace defaults → Session overrides → Slot overrides. Resolution: for any config key, check slot-level first, then session-level, then workspace-level, then global defaults. Example: budget — workspace default is $25, session override is $50, slot 0 override is $10. Slot 0 gets $10, other slots get $50. Inheritance tracked in snapshots: each snapshot records which level it represents. UI shows inheritance visually: grayed-out values = inherited, solid values = explicitly set. 'Reset to inherited' button clears override.",
+      "status": "pending",
+      "tests": [
+        "slot override takes precedence over session",
+        "session override takes precedence over workspace",
+        "reset clears override and inherits parent",
+        "inheritance chain visible in snapshot data"
+      ],
+      "entity_touches": ["ConfigSnapshot"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-004",
+      "title": "Config as code (export/import)",
+      "description": "Export config to .crossroads/config.yaml (human-readable). Import config from file. Format: YAML with sections for each config type. Example:\n```yaml\nxroads:\n  org_chart:\n    template: squad\n    roles: [...]\n  budget:\n    preset: standard\n    session_cap: 2500\n  policy:\n    auto_approve_low: true\n  skills:\n    slot_0: [backend, testing]\n```\nExport: Tauri command that serializes current config to YAML file. Import: parse YAML, validate against schema, apply as new config (creating snapshot). Git-trackable: user can commit .crossroads/config.yaml to their repo. On session start, auto-load config.yaml if present.",
+      "status": "pending",
+      "tests": [
+        "export creates valid YAML",
+        "import applies config correctly",
+        "config.yaml auto-loaded on session start",
+        "invalid YAML returns helpful error"
+      ],
+      "entity_touches": ["ConfigSnapshot"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-005",
+      "title": "Config history UI + diff viewer",
+      "description": "UI components: 1) Config history timeline — vertical list of snapshots with version number, timestamp, changed_by, change_reason, config_type badge. 2) Diff viewer — side-by-side JSON diff between any two versions (green=added, red=removed, yellow=changed). 3) Rollback button per version with confirmation dialog. 4) Config inspector — current effective config with inheritance indicators. 5) Compare button — select two versions to diff. 6) Export/import buttons in settings. Accessible from cockpit panel as 'Config' tab.",
+      "status": "pending",
+      "tests": [
+        "timeline shows all snapshots",
+        "diff viewer highlights changes",
+        "rollback button triggers with confirmation",
+        "export/import buttons work from UI"
+      ],
+      "entity_touches": ["ConfigSnapshot"],
+      "priority": "medium"
+    }
+  ]
+}
