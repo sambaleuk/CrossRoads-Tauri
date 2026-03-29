@@ -314,10 +314,16 @@ mod tests {
 
     #[test]
     fn test_integration_with_dispatch() {
-        // Simulate stories with overlapping file patterns
+        // Simulate stories with overlapping file patterns (high risk: 4+ overlapping files)
         let stories = vec![
-            ("US-001".to_string(), vec!["src/api/users.rs".to_string(), "src/models/user.rs".to_string()]),
-            ("US-002".to_string(), vec!["src/api/users.rs".to_string(), "src/api/orders.rs".to_string()]),
+            ("US-001".to_string(), vec![
+                "src/api/users.rs".to_string(), "src/models/user.rs".to_string(),
+                "src/api/auth.rs".to_string(), "src/api/session.rs".to_string(),
+            ]),
+            ("US-002".to_string(), vec![
+                "src/api/users.rs".to_string(), "src/api/orders.rs".to_string(),
+                "src/api/auth.rs".to_string(), "src/api/session.rs".to_string(),
+            ]),
             ("US-003".to_string(), vec!["src/ui/dashboard.tsx".to_string()]),
         ];
 
@@ -325,23 +331,24 @@ mod tests {
 
         let result = analyze_dispatch_plan(&stories, &file_predictions);
 
-        // US-001 and US-002 overlap on src/api/users.rs
+        // US-001 and US-002 overlap on multiple files
         assert_eq!(result.risky_pairs.len(), 1);
         assert_eq!(result.risky_pairs[0].story_a, "US-001");
         assert_eq!(result.risky_pairs[0].story_b, "US-002");
+        // 3 overlapping files → medium risk
+        assert_eq!(result.risky_pairs[0].risk, "medium");
 
         // US-001+US-003 and US-002+US-003 are safe
         assert_eq!(result.safe_pairs.len(), 2);
 
-        // Resequencing should separate US-001 and US-002
+        // Resequencing should separate US-001 and US-002 (high risk)
         assert!(result.recommended_resequencing.len() >= 2);
 
-        // Verify no risky pair stories are in the same layer
+        // Verify no high/medium risky pair stories are in the same layer
         for layer in &result.recommended_resequencing {
             let in_layer: Vec<&String> = layer.story_ids.iter().collect();
             for rp in &result.risky_pairs {
                 let both_in = in_layer.contains(&&rp.story_a) && in_layer.contains(&&rp.story_b);
-                // Only high/medium risk pairs should be separated
                 if rp.risk == "high" || rp.risk == "medium" {
                     assert!(!both_in, "Risky pair {} and {} should not be in the same layer", rp.story_a, rp.story_b);
                 }

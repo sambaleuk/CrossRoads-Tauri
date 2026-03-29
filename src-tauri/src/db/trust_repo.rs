@@ -41,11 +41,11 @@ fn row_to_trust(row: &rusqlite::Row) -> rusqlite::Result<TrustScore> {
 /// Compute trust score for an agent in a domain from PerformanceProfile and LearningRecords.
 /// Score formula: (successRate * 0.4) + (testPassRate * 0.3) + (1 - conflictRate) * 0.2 + min(totalStories/50, 1.0) * 0.1
 pub fn compute_trust(agent_type: &str, domain: &str) -> Result<TrustScore> {
+    // Fetch profile outside with_db to avoid nested lock
+    let profile = learning_repo::fetch_profile(agent_type, domain)?;
+
     with_db(|conn| {
         let now = chrono::Utc::now().to_rfc3339();
-
-        // Fetch performance profile for this agent+domain
-        let profile = learning_repo::fetch_profile(agent_type, domain)?;
 
         let (success_rate, conflict_rate, total_executions, avg_test_pass_rate) = match &profile {
             Some(p) => (p.success_rate, p.conflict_rate, p.total_executions, p.avg_test_pass_rate),
