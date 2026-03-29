@@ -155,3 +155,24 @@ pub fn git_coordinate_merge(repo_path: String, branches: Vec<String>) -> Result<
     let refs: Vec<&str> = branches.iter().map(|s| s.as_str()).collect();
     git_service::coordinate_merge(&repo_path, &refs)
 }
+
+// Loop launcher commands
+#[tauri::command]
+pub fn resolve_loop_script(agent_type: String) -> Result<String, String> {
+    crate::services::loop_launcher::resolve_loop_script(&agent_type)
+}
+
+#[tauri::command]
+pub fn parse_progress(progress_path: String) -> Vec<crate::services::loop_launcher::ProgressEntry> {
+    crate::services::loop_launcher::parse_progress(&progress_path)
+}
+
+#[tauri::command]
+pub fn list_iteration_logs(log_dir: String) -> Result<Vec<crate::services::loop_launcher::LogFileInfo>, String> {
+    crate::services::loop_launcher::list_iteration_logs(&log_dir)
+}
+
+#[tauri::command]
+pub fn read_log_file(path: String) -> Result<String, String> {
+    crate::services::loop_launcher::read_log_file(&path)
+}

@@ -53,6 +53,10 @@ fn main() {
             commands::git_create_worktree,
             commands::git_delete_worktree,
             commands::git_coordinate_merge,
+            commands::resolve_loop_script,
+            commands::parse_progress,
+            commands::list_iteration_logs,
+            commands::read_log_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
