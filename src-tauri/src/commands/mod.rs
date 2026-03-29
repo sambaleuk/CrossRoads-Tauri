@@ -1,5 +1,5 @@
 use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo, metrics_repo, orchestration_repo};
-use crate::db::{org_role_repo, budget_repo, heartbeat_repo, workspace_repo, runtime_repo, config_snapshot_repo, learning_repo};
+use crate::db::{org_role_repo, budget_repo, heartbeat_repo, workspace_repo, runtime_repo, config_snapshot_repo, learning_repo, memory_repo, trust_repo};
 use crate::services::{cli_detector, git_service};
 use crate::services::agent_lifecycle::{self, SpawnRequest, AgentHealth, HealthAlert};
 use crate::services::orchestration_engine;
@@ -9,7 +9,7 @@ use crate::services::cockpit_logic;
 use crate::services::safe_executor;
 use crate::services::skill_system;
 use crate::services::session_persistence;
-use crate::services::{org_chart, budget_engine, heartbeat_engine, learning_engine};
+use crate::services::{org_chart, budget_engine, heartbeat_engine, learning_engine, conflict_prevention};
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -754,4 +754,86 @@ pub fn predict_conflicts(stories: Vec<serde_json::Value>) -> Vec<learning_engine
 #[tauri::command]
 pub fn generate_retro(session_id: String) -> Result<String, String> {
     learning_engine::generate_retro(&session_id)
+}
+
+// ── P0-1: Persistent Agent Memory ──
+
+#[tauri::command]
+pub fn store_agent_memory(
+    agent_type: String,
+    domain: String,
+    memory_type: String,
+    content: String,
+    confidence: f64,
+    session_id: Option<String>,
+    story_id: Option<String>,
+    tags: Option<String>,
+) -> Result<memory_repo::AgentMemory, String> {
+    memory_repo::store_memory(
+        &agent_type, &domain, &memory_type, &content, confidence,
+        session_id.as_deref(), story_id.as_deref(),
+        &tags.unwrap_or_else(|| "[]".into()),
+    ).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn recall_agent_memories(agent_type: String, domain: String, limit: Option<i32>) -> Result<Vec<memory_repo::AgentMemory>, String> {
+    memory_repo::recall_memories(&agent_type, &domain, limit.unwrap_or(20)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn search_memories(query: String) -> Result<Vec<memory_repo::AgentMemory>, String> {
+    memory_repo::search_memories(&query).map_err(|e| e.to_string())
+}
+
+// ── P0-2: Trust Scoring + Auto-Merge Policy ──
+
+#[tauri::command]
+pub fn compute_trust_score(agent_type: String, domain: String) -> Result<trust_repo::TrustScore, String> {
+    trust_repo::compute_trust(&agent_type, &domain).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_trust_scores() -> Result<Vec<trust_repo::TrustScore>, String> {
+    trust_repo::fetch_all_trust().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_auto_merge_policy(agent_type: String, domain: String, enabled: bool, threshold: f64) -> Result<(), String> {
+    trust_repo::update_auto_merge(&agent_type, &domain, enabled, threshold).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn should_auto_merge(agent_type: String, domain: String) -> Result<bool, String> {
+    trust_repo::should_auto_merge(&agent_type, &domain).map_err(|e| e.to_string())
+}
+
+// ── P0-3: Predictive Conflict Prevention ──
+
+#[tauri::command]
+pub fn analyze_conflicts_before_dispatch(
+    stories: Vec<serde_json::Value>,
+    project_path: Option<String>,
+) -> Result<conflict_prevention::ConflictPreventionResult, String> {
+    let parsed_stories: Vec<(String, Vec<String>)> = stories.iter().filter_map(|s| {
+        let id = s.get("id")?.as_str()?.to_string();
+        let patterns: Vec<String> = s.get("patterns")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|p| p.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        Some((id, patterns))
+    }).collect();
+
+    // Generate file predictions from titles
+    let story_titles: Vec<(String, String)> = stories.iter().filter_map(|s| {
+        let id = s.get("id")?.as_str()?.to_string();
+        let title = s.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        Some((id, title))
+    }).collect();
+
+    let file_predictions = conflict_prevention::generate_file_predictions(
+        &story_titles, None, project_path.as_deref(),
+    );
+
+    Ok(conflict_prevention::analyze_dispatch_plan(&parsed_stories, &file_predictions))
 }

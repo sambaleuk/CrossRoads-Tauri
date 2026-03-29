@@ -59,6 +59,8 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("v13_agent_runtime", V13_AGENT_RUNTIME),
         ("v14_config_snapshot", V14_CONFIG_SNAPSHOT),
         ("v15_learning", V15_LEARNING),
+        ("v16_agent_memory", V16_AGENT_MEMORY),
+        ("v17_trust_score", V17_TRUST_SCORE),
     ];
 
     for (name, sql) in migrations {
@@ -407,6 +409,43 @@ const V15_LEARNING: &str = "
     CREATE INDEX idx_perf_profile_agent ON performance_profile (agentType);
 ";
 
+const V16_AGENT_MEMORY: &str = "
+    CREATE TABLE agent_memory (
+        id TEXT PRIMARY KEY NOT NULL,
+        agentType TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        memoryType TEXT NOT NULL DEFAULT 'observation',
+        content TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        sourceSessionId TEXT,
+        sourceStoryId TEXT,
+        tags TEXT DEFAULT '[]',
+        accessCount INTEGER NOT NULL DEFAULT 0,
+        lastAccessedAt TEXT,
+        createdAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_agent_memory_agent ON agent_memory (agentType, domain);
+    CREATE INDEX idx_agent_memory_type ON agent_memory (memoryType);
+";
+
+const V17_TRUST_SCORE: &str = "
+    CREATE TABLE trust_score (
+        id TEXT PRIMARY KEY NOT NULL,
+        agentType TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        score REAL NOT NULL DEFAULT 0.5,
+        totalStories INTEGER NOT NULL DEFAULT 0,
+        successfulStories INTEGER NOT NULL DEFAULT 0,
+        totalTestsPassed INTEGER NOT NULL DEFAULT 0,
+        totalTestsFailed INTEGER NOT NULL DEFAULT 0,
+        autoMergeEnabled INTEGER NOT NULL DEFAULT 0,
+        autoMergeThreshold REAL NOT NULL DEFAULT 0.9,
+        lastComputedAt TEXT NOT NULL,
+        UNIQUE(agentType, domain)
+    );
+    CREATE INDEX idx_trust_score_agent ON trust_score (agentType);
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,7 +460,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 15);
+        assert_eq!(count, 17);
     }
 
     #[test]
@@ -449,6 +488,8 @@ mod tests {
             "config_snapshot",
             "learning_record",
             "performance_profile",
+            "agent_memory",
+            "trust_score",
         ];
 
         for table in tables {
@@ -474,7 +515,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 15);
+        assert_eq!(count, 17);
     }
 
     #[test]

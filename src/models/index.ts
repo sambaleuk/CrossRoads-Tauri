@@ -592,3 +592,41 @@ export interface ConflictPrediction {
   overlappingPatterns: string[];
   risk: string;
 }
+
+// P0: Persistent Agent Memory
+export interface AgentMemory {
+  id: string;
+  agentType: string;
+  domain: string;
+  memoryType: string;
+  content: string;
+  confidence: number;
+  sourceSessionId?: string;
+  sourceStoryId?: string;
+  tags: string;
+  accessCount: number;
+  lastAccessedAt?: string;
+  createdAt: string;
+}
+
+// P0: Trust Scoring
+export interface TrustScore {
+  id: string;
+  agentType: string;
+  domain: string;
+  score: number;
+  totalStories: number;
+  successfulStories: number;
+  totalTestsPassed: number;
+  totalTestsFailed: number;
+  autoMergeEnabled: boolean;
+  autoMergeThreshold: number;
+  lastComputedAt: string;
+}
+
+// P0: Conflict Prevention
+export interface ConflictPreventionResult {
+  safePairs: number;
+  riskyPairs: Array<{ storyA: string; storyB: string; risk: string }>;
+  recommendedResequencing: string[][];
+}

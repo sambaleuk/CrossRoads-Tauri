@@ -9,7 +9,8 @@ import type {
   PersistedSession, RecoveryInfo, HistoryEntry, OrphanedWorktree,
   OrgRole, OrgRoleNode, BudgetConfig, BudgetStatus, CostProjection, BudgetAlert,
   HeartbeatConfig, ScheduledRun, Workspace, AgentRuntimeConfig,
-  ConfigSnapshot, PerformanceProfile, AgentRecommendation, ConflictPrediction
+  ConfigSnapshot, PerformanceProfile, AgentRecommendation, ConflictPrediction,
+  AgentMemory, TrustScore, ConflictPreventionResult
 } from '../models';
 
 // Session
@@ -312,3 +313,25 @@ export const recommendAgent = (taskCategory: string) => invoke<AgentRecommendati
 export const estimateStoryTime = (taskCategory: string, complexity: string) => invoke<number | null>('estimate_story_time', { taskCategory, complexity });
 export const predictConflicts = (stories: Array<{id: string; patterns: string[]}>) => invoke<ConflictPrediction[]>('predict_conflicts', { stories });
 export const generateRetro = (sessionId: string) => invoke<string>('generate_retro', { sessionId });
+
+// P0: Persistent Agent Memory
+export const storeAgentMemory = (agentType: string, domain: string, memoryType: string, content: string, confidence?: number) =>
+  invoke<AgentMemory>('store_agent_memory', { agentType, domain, memoryType, content, confidence });
+export const recallAgentMemories = (agentType: string, domain: string, limit?: number) =>
+  invoke<AgentMemory[]>('recall_agent_memories', { agentType, domain, limit });
+export const searchMemories = (query: string) =>
+  invoke<AgentMemory[]>('search_memories', { query });
+
+// P0: Trust Scoring
+export const computeTrustScore = (agentType: string, domain: string) =>
+  invoke<TrustScore>('compute_trust_score', { agentType, domain });
+export const fetchTrustScores = () =>
+  invoke<TrustScore[]>('fetch_trust_scores');
+export const setAutoMergePolicy = (agentType: string, domain: string, enabled: boolean, threshold: number) =>
+  invoke<void>('set_auto_merge_policy', { agentType, domain, enabled, threshold });
+export const shouldAutoMerge = (agentType: string, domain: string) =>
+  invoke<boolean>('should_auto_merge', { agentType, domain });
+
+// P0: Conflict Prevention
+export const analyzeConflictsBeforeDispatch = (stories: Array<{id: string; patterns: string[]}>) =>
+  invoke<ConflictPreventionResult>('analyze_conflicts_before_dispatch', { stories });

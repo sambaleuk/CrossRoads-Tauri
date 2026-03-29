@@ -159,6 +159,17 @@ fn main() {
             commands::estimate_story_time,
             commands::predict_conflicts,
             commands::generate_retro,
+            // P0-1: Persistent Agent Memory
+            commands::store_agent_memory,
+            commands::recall_agent_memories,
+            commands::search_memories,
+            // P0-2: Trust Scoring + Auto-Merge
+            commands::compute_trust_score,
+            commands::fetch_trust_scores,
+            commands::set_auto_merge_policy,
+            commands::should_auto_merge,
+            // P0-3: Predictive Conflict Prevention
+            commands::analyze_conflicts_before_dispatch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
