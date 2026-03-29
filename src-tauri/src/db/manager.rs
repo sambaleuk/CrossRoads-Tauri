@@ -50,6 +50,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("v4_agent_slot_current_task", V4_AGENT_SLOT_TASK),
         ("v5_execution_gate", V5_EXECUTION_GATE),
         ("v6_cost_event", V6_COST_EVENT),
+        ("v7_agent_metrics", V7_AGENT_METRICS),
     ];
 
     for (name, sql) in migrations {
@@ -172,6 +173,21 @@ const V6_COST_EVENT: &str = "
     CREATE INDEX idx_cost_event_created_at ON cost_event (createdAt);
 ";
 
+const V7_AGENT_METRICS: &str = "
+    CREATE TABLE agent_metrics (
+        id TEXT PRIMARY KEY NOT NULL,
+        agentSlotId TEXT NOT NULL REFERENCES agent_slot(id) ON DELETE CASCADE,
+        totalStoriesCompleted INTEGER NOT NULL DEFAULT 0,
+        totalStoriesFailed INTEGER NOT NULL DEFAULT 0,
+        avgStoryTimeMs INTEGER NOT NULL DEFAULT 0,
+        conflictsEncountered INTEGER NOT NULL DEFAULT 0,
+        failoverAttempts INTEGER NOT NULL DEFAULT 0,
+        lastStoryStartedAt TEXT,
+        updatedAt TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX idx_agent_metrics_slot ON agent_metrics (agentSlotId);
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,7 +202,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 6);
+        assert_eq!(count, 7);
     }
 
     #[test]
@@ -202,6 +218,7 @@ mod tests {
             "agent_message",
             "execution_gate",
             "cost_event",
+            "agent_metrics",
         ];
 
         for table in tables {
@@ -227,7 +244,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 6);
+        assert_eq!(count, 7);
     }
 
     #[test]

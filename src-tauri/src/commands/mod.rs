@@ -1,6 +1,25 @@
-use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo};
+use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo, metrics_repo};
 use crate::services::{cli_detector, git_service};
+use crate::services::agent_lifecycle::{self, SpawnRequest, AgentHealth, HealthAlert};
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+use tokio::sync::mpsc;
+
+// Global lifecycle manager — initialized lazily
+static LIFECYCLE_CHANNELS: Lazy<(
+    mpsc::UnboundedSender<HealthAlert>,
+    mpsc::UnboundedSender<agent_lifecycle::LifecycleEvent>,
+)> = Lazy::new(|| {
+    let (alert_tx, _alert_rx) = mpsc::unbounded_channel();
+    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    (alert_tx, event_tx)
+});
+
+static LIFECYCLE_MANAGER: Lazy<Mutex<agent_lifecycle::AgentLifecycleManager>> = Lazy::new(|| {
+    let (alert_tx, event_tx) = LIFECYCLE_CHANNELS.clone();
+    Mutex::new(agent_lifecycle::AgentLifecycleManager::new(alert_tx, event_tx))
+});
 
 // Session commands
 #[tauri::command]
@@ -175,4 +194,63 @@ pub fn list_iteration_logs(log_dir: String) -> Result<Vec<crate::services::loop_
 #[tauri::command]
 pub fn read_log_file(path: String) -> Result<String, String> {
     crate::services::loop_launcher::read_log_file(&path)
+}
+
+// Agent lifecycle commands (PRD-14)
+
+#[tauri::command]
+pub fn spawn_agent(req: SpawnRequest) -> Result<String, String> {
+    let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+    mgr.spawn_agent(req)
+}
+
+#[tauri::command]
+pub fn abort_agent(slot_id: String) -> Result<(), String> {
+    let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+    mgr.abort_agent(&slot_id)
+}
+
+#[tauri::command]
+pub fn agent_health(slot_id: String) -> Option<AgentHealth> {
+    let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+    mgr.get_health(&slot_id)
+}
+
+#[tauri::command]
+pub fn all_agent_health() -> Vec<AgentHealth> {
+    let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+    mgr.get_all_health()
+}
+
+#[tauri::command]
+pub fn failover_agent(slot_id: String) -> Result<String, String> {
+    let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+    mgr.failover(&slot_id)
+}
+
+#[tauri::command]
+pub fn handle_alert_action(slot_id: String, action: String) -> Result<(), String> {
+    let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+    mgr.handle_alert_action(&slot_id, &action)
+}
+
+#[tauri::command]
+pub fn check_agents_health() {
+    let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+    mgr.check_health();
+}
+
+#[tauri::command]
+pub fn fetch_agent_metrics(slot_id: String) -> Result<metrics_repo::AgentMetrics, String> {
+    metrics_repo::get_or_create(&slot_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn record_story_completed(slot_id: String, story_time_ms: i64) -> Result<(), String> {
+    metrics_repo::record_story_completed(&slot_id, story_time_ms).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn record_story_failed(slot_id: String) -> Result<(), String> {
+    metrics_repo::record_story_failed(&slot_id).map_err(|e| e.to_string())
 }

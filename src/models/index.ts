@@ -110,3 +110,50 @@ export interface OrchestrationRecord {
   completedStories: number;
   totalCostCents: number;
 }
+
+// PRD-14: Agent Lifecycle types
+
+export interface SpawnRequest {
+  slotId: string;
+  sessionId: string;
+  slotIndex: number;
+  agentType: AgentType;
+  worktreePath: string;
+  prdPath: string;
+  branchName: string;
+  maxIterations?: number;
+  sleepSeconds?: number;
+  skillContent?: string;
+  handoffContext?: string;
+}
+
+export interface AgentHealth {
+  slotId: string;
+  processId?: string;
+  agentType: string;
+  status: string;
+  progressPct?: number;
+  currentTask?: string;
+  lastOutputAt?: string;
+  failoverAttempts: number;
+}
+
+export interface HealthAlert {
+  slotId: string;
+  alertType: string;
+  message: string;
+  actions: string[];
+  createdAt: string;
+}
+
+export interface AgentMetrics {
+  id: string;
+  agentSlotId: string;
+  totalStoriesCompleted: number;
+  totalStoriesFailed: number;
+  avgStoryTimeMs: number;
+  conflictsEncountered: number;
+  failoverAttempts: number;
+  lastStoryStartedAt?: string;
+  updatedAt: string;
+}

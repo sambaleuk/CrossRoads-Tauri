@@ -57,6 +57,17 @@ fn main() {
             commands::parse_progress,
             commands::list_iteration_logs,
             commands::read_log_file,
+            // PRD-14: Agent Lifecycle
+            commands::spawn_agent,
+            commands::abort_agent,
+            commands::agent_health,
+            commands::all_agent_health,
+            commands::failover_agent,
+            commands::handle_alert_action,
+            commands::check_agents_health,
+            commands::fetch_agent_metrics,
+            commands::record_story_completed,
+            commands::record_story_failed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   CockpitSession, AgentSlot, CostEvent, UsageSummary,
-  ExecutionGate, AgentMessage, MetierSkill
+  ExecutionGate, AgentMessage, MetierSkill,
+  SpawnRequest, AgentHealth, AgentMetrics
 } from '../models';
 
 // Session
@@ -92,3 +93,35 @@ export const gitCoordinateMerge = (repoPath: string, branches: string[]) =>
 // CLI
 export const detectCliTools = () =>
   invoke<Array<{ name: string; available: boolean; version?: string; path?: string }>>('detect_cli_tools');
+
+// Agent Lifecycle (PRD-14)
+export const spawnAgent = (req: SpawnRequest) =>
+  invoke<string>('spawn_agent', { req });
+
+export const abortAgent = (slotId: string) =>
+  invoke<void>('abort_agent', { slotId });
+
+export const agentHealth = (slotId: string) =>
+  invoke<AgentHealth | null>('agent_health', { slotId });
+
+export const allAgentHealth = () =>
+  invoke<AgentHealth[]>('all_agent_health');
+
+export const failoverAgent = (slotId: string) =>
+  invoke<string>('failover_agent', { slotId });
+
+export const handleAlertAction = (slotId: string, action: string) =>
+  invoke<void>('handle_alert_action', { slotId, action });
+
+export const checkAgentsHealth = () =>
+  invoke<void>('check_agents_health');
+
+// Metrics (PRD-14)
+export const fetchAgentMetrics = (slotId: string) =>
+  invoke<AgentMetrics>('fetch_agent_metrics', { slotId });
+
+export const recordStoryCompleted = (slotId: string, storyTimeMs: number) =>
+  invoke<void>('record_story_completed', { slotId, storyTimeMs });
+
+export const recordStoryFailed = (slotId: string) =>
+  invoke<void>('record_story_failed', { slotId });
