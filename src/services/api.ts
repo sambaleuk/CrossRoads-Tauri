@@ -69,3 +69,26 @@ export const createSkillRecord = (name: string, family: string, skillMdPath: str
 
 export const findSkill = (name: string) =>
   invoke<MetierSkill | null>('find_skill', { name });
+
+// Git
+export const isGitRepo = (path: string) =>
+  invoke<boolean>('is_git_repo', { path });
+
+export const gitCurrentBranch = (path: string) =>
+  invoke<string>('git_current_branch', { path });
+
+export const gitRecentCommits = (path: string, count: number) =>
+  invoke<Array<{ shortSha: string; message: string; author: string; date: string }>>('git_recent_commits', { path, count });
+
+export const gitBranches = (path: string) =>
+  invoke<string[]>('git_branches', { path });
+
+export const gitCreateWorktree = (repoPath: string, worktreePath: string, branch: string) =>
+  invoke<void>('git_create_worktree', { repoPath, worktreePath, branch });
+
+export const gitCoordinateMerge = (repoPath: string, branches: string[]) =>
+  invoke<{ success: boolean; mergedBranches: string[]; conflicts: string[]; rolledBack: boolean }>('git_coordinate_merge', { repoPath, branches });
+
+// CLI
+export const detectCliTools = () =>
+  invoke<Array<{ name: string; available: boolean; version?: string; path?: string }>>('detect_cli_tools');

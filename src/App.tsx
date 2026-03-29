@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Dashboard } from './views/Dashboard';
+import { ChatPanel } from './views/ChatPanel';
+import { GitPanel } from './views/GitPanel';
 import { useAppStore } from './stores/appStore';
 
 export default function App() {
@@ -29,14 +31,7 @@ export default function App() {
         {/* Left: Chat panel */}
         {showChat && (
           <div className="w-72 border-r border-gray-800 flex flex-col bg-gray-950">
-            <div className="p-3 border-b border-gray-800">
-              <h2 className="text-xs font-bold font-mono text-gray-400">ORCHESTRATOR</h2>
-            </div>
-            <div className="flex-1 flex items-center justify-center">
-              <p className="text-[10px] text-gray-600 font-mono text-center px-4">
-                Chat panel — PRD-06
-              </p>
-            </div>
+            <ChatPanel />
           </div>
         )}
 
@@ -62,14 +57,7 @@ export default function App() {
         {/* Far right: Inspector */}
         {showInspector && (
           <div className="w-72 border-l border-gray-800 flex flex-col bg-gray-950">
-            <div className="p-3 border-b border-gray-800">
-              <h2 className="text-xs font-bold font-mono text-gray-400">INSPECTOR</h2>
-            </div>
-            <div className="flex-1 flex items-center justify-center">
-              <p className="text-[10px] text-gray-600 font-mono text-center px-4">
-                Git + MCP — PRD-07
-              </p>
-            </div>
+            <GitPanel />
           </div>
         )}
       </div>
