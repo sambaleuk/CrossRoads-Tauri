@@ -5,7 +5,7 @@ import type {
   SpawnRequest, AgentHealth, AgentMetrics,
   ParsedPrd, ExecutionLayer, LayerDispatchPlan,
   OrchestrationStart, OrchestrationRecordDb, McpSession,
-  ChairmanInput, ChairmanOutput, DangerousOperation, PolicyDecisionStr
+  ChairmanInput, ChairmanOutput, DangerousOperation, PolicyDecisionStr, LoadedSkill
 } from '../models';
 
 // Session
@@ -223,3 +223,18 @@ export const safeRejectGate = (gateId: string, slotId: string, reason: string) =
 
 export const evaluatePolicy = (riskLevel: string, pattern: string) =>
   invoke<PolicyDecisionStr>('evaluate_policy', { riskLevel, pattern });
+
+// Skill System (PRD-20)
+export const scanSkills = (projectPath?: string) =>
+  invoke<LoadedSkill[]>('scan_skills', { projectPath });
+
+export const registerSkills = (projectPath?: string) =>
+  invoke<string[]>('register_skills', { projectPath });
+
+export const adaptSkillForCli = (skillName: string, cliType: string, projectPath?: string) =>
+  invoke<string>('adapt_skill_for_cli', { skillName, cliType, projectPath });
+
+export const prepareSkillInjection = (
+  skillNames: string[], cliType: string, projectName: string, branch: string,
+  storyTitle: string | undefined, slotIndex: number, agentType: string, projectPath?: string
+) => invoke<string>('prepare_skill_injection', { skillNames, cliType, projectName, branch, storyTitle, slotIndex, agentType, projectPath });

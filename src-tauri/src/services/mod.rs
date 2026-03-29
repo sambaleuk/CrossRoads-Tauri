@@ -8,3 +8,4 @@ pub mod mcp_service;
 pub mod event_bus;
 pub mod cockpit_logic;
 pub mod safe_executor;
+pub mod skill_system;

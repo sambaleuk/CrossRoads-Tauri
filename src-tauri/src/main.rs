@@ -108,6 +108,11 @@ fn main() {
             commands::safe_approve_gate,
             commands::safe_reject_gate,
             commands::evaluate_policy,
+            // PRD-20: Skill System
+            commands::scan_skills,
+            commands::register_skills,
+            commands::adapt_skill_for_cli,
+            commands::prepare_skill_injection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

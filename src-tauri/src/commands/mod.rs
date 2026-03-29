@@ -6,6 +6,7 @@ use crate::services::mcp_service;
 use crate::services::event_bus;
 use crate::services::cockpit_logic;
 use crate::services::safe_executor;
+use crate::services::skill_system;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -470,4 +471,57 @@ pub fn evaluate_policy(risk_level: String, pattern: String) -> String {
         safe_executor::PolicyDecision::RequireDryRun => "require_dry_run".into(),
         safe_executor::PolicyDecision::RequireHumanApproval => "require_human_approval".into(),
     }
+}
+
+// Skill system commands (PRD-20)
+
+#[tauri::command]
+pub fn scan_skills(project_path: Option<String>) -> Vec<skill_system::LoadedSkill> {
+    skill_system::scan_skills(project_path.as_deref())
+}
+
+#[tauri::command]
+pub fn register_skills(project_path: Option<String>) -> Result<Vec<String>, String> {
+    let skills = skill_system::scan_skills(project_path.as_deref());
+    skill_system::register_skills(&skills)
+}
+
+#[tauri::command]
+pub fn adapt_skill_for_cli(skill_name: String, cli_type: String, project_path: Option<String>) -> Result<String, String> {
+    let skills = skill_system::scan_skills(project_path.as_deref());
+    let skill = skills.iter().find(|s| s.name == skill_name)
+        .ok_or_else(|| format!("Skill '{}' not found", skill_name))?;
+    Ok(skill_system::adapt_for_cli(skill, &cli_type))
+}
+
+#[tauri::command]
+pub fn prepare_skill_injection(
+    skill_names: Vec<String>,
+    cli_type: String,
+    project_name: String,
+    branch: String,
+    story_title: Option<String>,
+    slot_index: u32,
+    agent_type: String,
+    project_path: Option<String>,
+) -> Result<String, String> {
+    let all_skills = skill_system::scan_skills(project_path.as_deref());
+    let selected: Vec<skill_system::LoadedSkill> = all_skills.into_iter()
+        .filter(|s| skill_names.contains(&s.name))
+        .collect();
+
+    if selected.is_empty() {
+        return Err("No matching skills found".into());
+    }
+
+    let ctx = skill_system::SkillContext {
+        project_name,
+        branch,
+        story_title,
+        story_id: None,
+        slot_index,
+        agent_type: agent_type.clone(),
+    };
+
+    Ok(skill_system::prepare_skill_injection(&selected, &cli_type, &ctx))
 }

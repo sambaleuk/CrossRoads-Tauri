@@ -306,6 +306,18 @@ export interface DangerousOperation {
 
 export type PolicyDecisionStr = 'auto_approve' | 'require_dry_run' | 'require_human_approval';
 
+// PRD-20: Skill System types
+
+export interface LoadedSkill {
+  name: string;
+  family: string;
+  description?: string;
+  requiredMcps?: string;
+  content: string;
+  sourcePath: string;
+  isUserOverride: boolean;
+}
+
 export interface OrchestrationRecordDb {
   id: string;
   cockpitSessionId: string;
