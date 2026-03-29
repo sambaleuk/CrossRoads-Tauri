@@ -1,6 +1,7 @@
-use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo, metrics_repo};
+use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo, metrics_repo, orchestration_repo};
 use crate::services::{cli_detector, git_service};
 use crate::services::agent_lifecycle::{self, SpawnRequest, AgentHealth, HealthAlert};
+use crate::services::orchestration_engine;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -253,4 +254,66 @@ pub fn record_story_completed(slot_id: String, story_time_ms: i64) -> Result<(),
 #[tauri::command]
 pub fn record_story_failed(slot_id: String) -> Result<(), String> {
     metrics_repo::record_story_failed(&slot_id).map_err(|e| e.to_string())
+}
+
+// Orchestration engine commands (PRD-15)
+
+#[tauri::command]
+pub fn parse_prd(path: String) -> Result<orchestration_engine::ParsedPrd, String> {
+    orchestration_engine::parse_prd(&path)
+}
+
+#[tauri::command]
+pub fn detect_prd_files(dir: String) -> Vec<String> {
+    orchestration_engine::detect_prd_files(&dir)
+}
+
+#[tauri::command]
+pub fn build_execution_layers(path: String) -> Result<Vec<orchestration_engine::ExecutionLayer>, String> {
+    let prd = orchestration_engine::parse_prd(&path)?;
+    orchestration_engine::build_layers(&prd.stories)
+}
+
+#[tauri::command]
+pub fn create_dispatch_plans(path: String, num_slots: usize) -> Result<Vec<orchestration_engine::LayerDispatchPlan>, String> {
+    let prd = orchestration_engine::parse_prd(&path)?;
+    let layers = orchestration_engine::build_layers(&prd.stories)?;
+    Ok(orchestration_engine::create_dispatch_plans(&layers, num_slots))
+}
+
+#[tauri::command]
+pub fn start_orchestration(session_id: String, prd_path: String) -> Result<serde_json::Value, String> {
+    let (record_id, prd, layers, plans, resume_layer) =
+        orchestration_engine::start_orchestration(&session_id, &prd_path)?;
+    Ok(serde_json::json!({
+        "recordId": record_id,
+        "featureName": prd.feature_name,
+        "totalStories": prd.stories.len(),
+        "totalLayers": layers.len(),
+        "resumeLayer": resume_layer,
+        "layers": layers,
+        "plans": plans,
+    }))
+}
+
+#[tauri::command]
+pub fn update_orchestration_progress(record_id: String, completed: i32, failed: i32, current_layer: i32) -> Result<(), String> {
+    orchestration_repo::update_progress(&record_id, completed, failed, current_layer).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn complete_orchestration(record_id: String, summary: String, merged_branches: Vec<String>, conflicts: Vec<String>, total_cost: i64) -> Result<(), String> {
+    let branches_json = serde_json::to_string(&merged_branches).map_err(|e| e.to_string())?;
+    let conflicts_json = serde_json::to_string(&conflicts).map_err(|e| e.to_string())?;
+    orchestration_repo::complete_record(&record_id, &summary, &branches_json, &conflicts_json, total_cost).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_orchestration_record(record_id: String) -> Result<Option<orchestration_repo::OrchestrationRecord>, String> {
+    orchestration_repo::fetch_record(&record_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_orchestration_records(session_id: String) -> Result<Vec<orchestration_repo::OrchestrationRecord>, String> {
+    orchestration_repo::fetch_records_for_session(&session_id).map_err(|e| e.to_string())
 }

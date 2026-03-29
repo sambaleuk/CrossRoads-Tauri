@@ -157,3 +157,69 @@ export interface AgentMetrics {
   lastStoryStartedAt?: string;
   updatedAt: string;
 }
+
+// PRD-15: Orchestration Engine types
+
+export interface ParsedStory {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  tests: string[];
+  dependencies: string[];
+  priority: string;
+}
+
+export interface ParsedPrd {
+  featureName: string;
+  description: string;
+  branch?: string;
+  status: string;
+  stories: ParsedStory[];
+}
+
+export interface ExecutionLayer {
+  index: number;
+  storyIds: string[];
+}
+
+export interface DispatchAssignment {
+  storyId: string;
+  slotIndex: number;
+  status: string;
+}
+
+export interface LayerDispatchPlan {
+  layerIndex: number;
+  assignments: DispatchAssignment[];
+}
+
+export interface OrchestrationStart {
+  recordId: string;
+  featureName: string;
+  totalStories: number;
+  totalLayers: number;
+  resumeLayer: number;
+  layers: ExecutionLayer[];
+  plans: LayerDispatchPlan[];
+}
+
+export interface OrchestrationRecordDb {
+  id: string;
+  cockpitSessionId: string;
+  prdPath: string;
+  prdName: string;
+  status: string;
+  totalStories: number;
+  completedStories: number;
+  failedStories: number;
+  currentLayer: number;
+  layersJson?: string;
+  resultSummary?: string;
+  mergedBranches?: string;
+  conflicts?: string;
+  totalCostCents: number;
+  startedAt: string;
+  finishedAt?: string;
+  updatedAt: string;
+}

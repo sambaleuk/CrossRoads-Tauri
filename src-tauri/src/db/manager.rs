@@ -51,6 +51,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("v5_execution_gate", V5_EXECUTION_GATE),
         ("v6_cost_event", V6_COST_EVENT),
         ("v7_agent_metrics", V7_AGENT_METRICS),
+        ("v8_orchestration_record", V8_ORCHESTRATION_RECORD),
     ];
 
     for (name, sql) in migrations {
@@ -188,6 +189,30 @@ const V7_AGENT_METRICS: &str = "
     CREATE UNIQUE INDEX idx_agent_metrics_slot ON agent_metrics (agentSlotId);
 ";
 
+const V8_ORCHESTRATION_RECORD: &str = "
+    CREATE TABLE orchestration_record (
+        id TEXT PRIMARY KEY NOT NULL,
+        cockpitSessionId TEXT NOT NULL REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        prdPath TEXT NOT NULL,
+        prdName TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        totalStories INTEGER NOT NULL DEFAULT 0,
+        completedStories INTEGER NOT NULL DEFAULT 0,
+        failedStories INTEGER NOT NULL DEFAULT 0,
+        currentLayer INTEGER NOT NULL DEFAULT 0,
+        layersJson TEXT,
+        resultSummary TEXT,
+        mergedBranches TEXT,
+        conflicts TEXT,
+        totalCostCents INTEGER NOT NULL DEFAULT 0,
+        startedAt TEXT NOT NULL,
+        finishedAt TEXT,
+        updatedAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_orch_record_session ON orchestration_record (cockpitSessionId);
+    CREATE INDEX idx_orch_record_status ON orchestration_record (status);
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,7 +227,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 7);
+        assert_eq!(count, 8);
     }
 
     #[test]
@@ -219,6 +244,7 @@ mod tests {
             "execution_gate",
             "cost_event",
             "agent_metrics",
+            "orchestration_record",
         ];
 
         for table in tables {
@@ -244,7 +270,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 7);
+        assert_eq!(count, 8);
     }
 
     #[test]

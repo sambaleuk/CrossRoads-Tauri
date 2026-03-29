@@ -68,6 +68,16 @@ fn main() {
             commands::fetch_agent_metrics,
             commands::record_story_completed,
             commands::record_story_failed,
+            // PRD-15: Orchestration Engine
+            commands::parse_prd,
+            commands::detect_prd_files,
+            commands::build_execution_layers,
+            commands::create_dispatch_plans,
+            commands::start_orchestration,
+            commands::update_orchestration_progress,
+            commands::complete_orchestration,
+            commands::fetch_orchestration_record,
+            commands::fetch_orchestration_records,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

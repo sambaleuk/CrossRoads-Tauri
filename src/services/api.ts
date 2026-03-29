@@ -2,7 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   CockpitSession, AgentSlot, CostEvent, UsageSummary,
   ExecutionGate, AgentMessage, MetierSkill,
-  SpawnRequest, AgentHealth, AgentMetrics
+  SpawnRequest, AgentHealth, AgentMetrics,
+  ParsedPrd, ExecutionLayer, LayerDispatchPlan,
+  OrchestrationStart, OrchestrationRecordDb
 } from '../models';
 
 // Session
@@ -125,3 +127,31 @@ export const recordStoryCompleted = (slotId: string, storyTimeMs: number) =>
 
 export const recordStoryFailed = (slotId: string) =>
   invoke<void>('record_story_failed', { slotId });
+
+// Orchestration Engine (PRD-15)
+export const parsePrd = (path: string) =>
+  invoke<ParsedPrd>('parse_prd', { path });
+
+export const detectPrdFiles = (dir: string) =>
+  invoke<string[]>('detect_prd_files', { dir });
+
+export const buildExecutionLayers = (path: string) =>
+  invoke<ExecutionLayer[]>('build_execution_layers', { path });
+
+export const createDispatchPlans = (path: string, numSlots: number) =>
+  invoke<LayerDispatchPlan[]>('create_dispatch_plans', { path, numSlots });
+
+export const startOrchestration = (sessionId: string, prdPath: string) =>
+  invoke<OrchestrationStart>('start_orchestration', { sessionId, prdPath });
+
+export const updateOrchestrationProgress = (recordId: string, completed: number, failed: number, currentLayer: number) =>
+  invoke<void>('update_orchestration_progress', { recordId, completed, failed, currentLayer });
+
+export const completeOrchestration = (recordId: string, summary: string, mergedBranches: string[], conflicts: string[], totalCost: number) =>
+  invoke<void>('complete_orchestration', { recordId, summary, mergedBranches, conflicts, totalCost });
+
+export const fetchOrchestrationRecord = (recordId: string) =>
+  invoke<OrchestrationRecordDb | null>('fetch_orchestration_record', { recordId });
+
+export const fetchOrchestrationRecords = (sessionId: string) =>
+  invoke<OrchestrationRecordDb[]>('fetch_orchestration_records', { sessionId });
