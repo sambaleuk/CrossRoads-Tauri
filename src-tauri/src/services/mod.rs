@@ -14,3 +14,4 @@ pub mod org_chart;
 pub mod budget_engine;
 pub mod heartbeat_engine;
 pub mod learning_engine;
+pub mod ml_trainer;

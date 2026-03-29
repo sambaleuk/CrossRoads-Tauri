@@ -1,0 +1,290 @@
+#!/bin/bash
+#
+# Nexus Loop - Autonomous AI Agent for Feature Implementation (Gemini CLI)
+# Part of XRoads / Nexus Scripts
+#
+# Usage: gemini-loop [max_iterations] [sleep_seconds]
+#
+
+set -e
+set -o pipefail
+
+# Find script directory and load common library
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -f "${SCRIPT_DIR}/lib/common.sh" ]]; then
+    source "${SCRIPT_DIR}/lib/common.sh"
+elif [[ -f "${HOME}/.nexus/lib/common.sh" ]]; then
+    source "${HOME}/.nexus/lib/common.sh"
+else
+    echo "Error: common.sh not found"
+    exit 1
+fi
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+MAX_ITERATIONS=${1:-10}
+SLEEP_SECONDS=${2:-3}
+LOG_DIR="logs"
+MAX_CONSECUTIVE_FAILURES=3
+AGENT_NAME="Gemini"
+AGENT_COLOR="$YELLOW"
+COMPLETION_TOKEN="<nexus-complete>"
+
+mkdir -p "$LOG_DIR"
+
+# ============================================================================
+# CLI-SPECIFIC: Command builder
+# ============================================================================
+run_agent() {
+    local prompt="$1"
+    local iter_log="$2"
+
+    # --sandbox=false allows file system access.
+    # -y (yolo) auto-approves tool calls — required for non-interactive -p mode,
+    # otherwise Gemini hangs waiting for interactive confirmation.
+    gemini --sandbox=false -y -p "$prompt" 2>&1 | tee "$iter_log"
+}
+
+# ============================================================================
+# PROMPT BUILDER
+# ============================================================================
+build_prompt() {
+    local iteration="$1"
+
+    # Detect XRoads-prepared context files
+    local agent_brief=""
+    if [[ -f "$AGENTS_FILE" ]]; then
+        agent_brief="$(cat "$AGENTS_FILE")"
+    fi
+
+    local status_file="${CROSSROADS_STATUS_FILE:-}"
+    local status_instructions=""
+    if [[ -n "$status_file" && -f "$status_file" ]]; then
+        status_instructions="
+## Cross-Agent Coordination
+
+**Status file:** $status_file
+- READ this file before starting any story to check dependency status
+- UPDATE this file when you COMPLETE a story (set status to \"complete\")
+"
+    fi
+
+    # Gemini CLI requires MCP tools for file operations (unlike Claude/Codex which have native tools)
+    local mcp_tools_section=""
+    if command -v gemini &>/dev/null; then
+        mcp_tools_section="
+## Available Tools (MCP)
+
+You have access to these tools via MCP servers configured in ~/.gemini/settings.json:
+- **filesystem**: read_file, write_file, list_directory, create_directory
+- **shell**: run shell commands (ls, npm, git, etc.)
+
+Use these tools to read files, write code, and run commands. Do NOT try to output file contents inline - use the tools.
+"
+    fi
+
+    cat <<PROMPT
+You are Nexus, an autonomous coding agent powered by Gemini. Do exactly ONE task per iteration.
+
+## Context
+
+$(if [[ -n "$agent_brief" ]]; then echo "$agent_brief"; fi)
+$mcp_tools_section
+## Steps
+
+1. Read $PRD_FILE and find the first user story that is NOT complete (status != "complete").
+2. Read $PROGRESS_FILE - check the Learnings section for patterns from previous iterations.
+3. Read $AGENTS_FILE if it exists for codebase patterns.
+4. Check if the story has a \`unit_test\` field - unit tests are MANDATORY.
+5. Implement that ONE story only.
+6. Write the unit test file specified in the story's \`unit_test.file\` field.
+7. Run the unit test and ensure it PASSES.
+$status_instructions
+## Completion Criteria (ALL must be true)
+
+To mark a story as complete:
+1. Implementation done
+2. Build passes (npm run build or equivalent)
+3. Typecheck passes (if applicable)
+4. UNIT TEST PASSES (MANDATORY)
+
+## If Checks PASS:
+
+- Update $PRD_FILE:
+  - Set story status to "complete"
+  - Set story's unit_test.status to "passing"
+  - Add "completed_at" timestamp
+- Commit changes: git commit -am 'feat(scope): US-XXX description'
+- Append what worked to $PROGRESS_FILE
+
+## If Checks FAIL:
+
+- Do NOT mark the story complete
+- Do NOT commit broken code
+- Append what went wrong to $PROGRESS_FILE
+- The loop will retry in the next iteration
+
+## Progress Block Format
+
+### Iteration $iteration - [Story ID]
+- Delta: ...
+- Checks: ...
+- Learnings: ...
+
+## End Condition
+
+After completing your task, check $PRD_FILE:
+- If ALL stories have status "complete", output exactly: ${COMPLETION_TOKEN}ALL DONE${COMPLETION_TOKEN/</</}
+- Otherwise just end your response so the next iteration can continue.
+PROMPT
+}
+
+# ============================================================================
+# INITIALIZATION
+# ============================================================================
+init() {
+    show_nexus_banner "$AGENT_NAME" "$AGENT_COLOR"
+
+    log_info "Checking dependencies..."
+    check_gemini_deps || exit 1
+
+    if [ ! -f "$PRD_FILE" ]; then
+        log_error "PRD file not found: $PRD_FILE"
+        echo "Create with: nexus-init <feature-name> or /prd skill"
+        exit 1
+    fi
+
+    if [ ! -f "$PROGRESS_FILE" ]; then
+        local feature=$(prd_get_feature_name)
+        create_progress_file "$feature" > "$PROGRESS_FILE"
+        log_success "Created $PROGRESS_FILE"
+    fi
+
+    if [ ! -f "$AGENTS_FILE" ]; then
+        create_agents_file > "$AGENTS_FILE"
+        log_success "Created $AGENTS_FILE"
+    fi
+
+    log_success "All dependencies OK"
+}
+
+# ============================================================================
+# MAIN LOOP
+# ============================================================================
+main() {
+    init
+
+    local pending=$(prd_count_pending)
+    local total=$(prd_count_total)
+    local feature_name=$(prd_get_feature_name)
+
+    if [ "$pending" = "0" ]; then
+        log_success "All stories already complete!"
+        exit 0
+    fi
+
+    log_info "Starting loop: $pending/$total stories remaining"
+    log_info "Feature: ${YELLOW}$feature_name${NC}"
+    log_info "Max iterations: $MAX_ITERATIONS"
+    log_info "${CYAN}Unit tests are MANDATORY - story won't complete until test passes${NC}"
+    echo ""
+
+    local consecutive_failures=0
+    local rate_limit_count=0
+
+    for ((i=1; i<=MAX_ITERATIONS; i++)); do
+        pending=$(prd_count_pending)
+        total=$(prd_count_total)
+        local complete=$((total - pending))
+
+        show_iteration_header "$i" "$MAX_ITERATIONS" "$complete" "$total"
+
+        local prompt=$(build_prompt "$i")
+        local timestamp=$(date '+%Y%m%d_%H%M%S')
+        local iter_log="$LOG_DIR/gemini_loop_iter_${i}_$timestamp.log"
+
+        echo -e "${DIM}---${NC}"
+        echo -e "${AGENT_COLOR}${AGENT_NAME} working...${NC}"
+        echo ""
+
+        # Protect loop files from agents that clear the directory
+        backup_loop_files
+
+        set +e
+        run_agent "$prompt" "$iter_log"
+        local exit_code=${PIPESTATUS[0]}
+        set -e
+
+        echo ""
+        echo -e "${DIM}---${NC}"
+
+        # Check for rate limiting FIRST (some CLIs exit 0 even on 429)
+        if detect_rate_limit "$iter_log"; then
+            rate_limit_count=$((rate_limit_count + 1))
+            log_warn "Rate limit hit ($rate_limit_count/$RATE_LIMIT_FAILOVER_THRESHOLD)"
+
+            # Auto-commit partial work before any cooldown/failover
+            restore_loop_files
+            auto_commit_if_needed
+
+            # Threshold reached → request agent failover from orchestrator
+            if [ $rate_limit_count -ge $RATE_LIMIT_FAILOVER_THRESHOLD ]; then
+                log_error "Rate limit threshold reached. Requesting agent failover..."
+                exit $RATE_LIMIT_FAILOVER_EXIT
+            fi
+
+            # Below threshold → cooldown and retry
+            handle_rate_limit
+            continue
+        fi
+
+        if [ $exit_code -ne 0 ]; then
+            log_warn "$AGENT_NAME exited with code $exit_code"
+            consecutive_failures=$((consecutive_failures + 1))
+            if [ $consecutive_failures -ge $MAX_CONSECUTIVE_FAILURES ]; then
+                log_error "Reached $MAX_CONSECUTIVE_FAILURES consecutive failures. Aborting."
+                exit 1
+            fi
+            log_info "Retrying after ${SLEEP_SECONDS}s (failure ${consecutive_failures}/${MAX_CONSECUTIVE_FAILURES})"
+            sleep $SLEEP_SECONDS
+            continue
+        fi
+        consecutive_failures=0
+        rate_limit_count=0  # Reset on successful iteration
+
+        # Restore loop files if agent deleted them (e.g., create-next-app)
+        restore_loop_files
+
+        # Sync completed stories from local prd.json to central status.json
+        # (agents may be sandboxed and unable to write status.json directly)
+        sync_prd_to_status
+
+        # Auto-commit any uncommitted changes the agent left behind
+        auto_commit_if_needed
+
+        # Check for completion in log
+        if grep -q "$COMPLETION_TOKEN" "$iter_log" 2>/dev/null; then
+            show_completion_banner "$i" "$feature_name"
+            echo -e "${GREEN}All stories complete with passing unit tests!${NC}"
+            exit 0
+        fi
+
+        # Check remaining via PRD
+        pending=$(prd_count_pending)
+        if [ "$pending" = "0" ]; then
+            show_completion_banner "$i" "$feature_name"
+            echo -e "${GREEN}All stories complete with passing unit tests!${NC}"
+            exit 0
+        fi
+
+        log_info "${YELLOW}$feature_name${NC} - $pending stories remaining. Next in ${SLEEP_SECONDS}s..."
+        sleep $SLEEP_SECONDS
+    done
+
+    show_timeout_banner "$MAX_ITERATIONS" "$pending"
+    exit 1
+}
+
+main

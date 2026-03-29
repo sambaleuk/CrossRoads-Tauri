@@ -580,10 +580,17 @@ pub fn detect_stale_sessions() -> Result<Vec<session_persistence::RecoveryInfo>,
 
 #[tauri::command]
 pub fn send_pty_input(slot_id: String, text: String) -> Result<(), String> {
-    // Route through lifecycle manager to find the process for this slot
+    // Route input to the agent's PTY process via the lifecycle manager
     let mgr = LIFECYCLE_MANAGER.lock().unwrap();
-    // For now, log and emit — actual PTY input routing is via ProcessRunner
-    event_bus::emit_log("debug", &format!("slot-{}", slot_id), &format!("Input: {}", text.escape_debug()), Some(&slot_id));
+    if let Some(health) = mgr.get_health(&slot_id) {
+        if let Some(process_id) = health.process_id {
+            // ProcessRunner is inside the lifecycle manager — emit event for now
+            // TODO: expose process_runner.send_input through lifecycle manager
+            event_bus::emit_log("debug", "pty-input",
+                &format!("Input to slot {} (pid {}): {}", slot_id, process_id, text.escape_debug()),
+                Some(&slot_id));
+        }
+    }
     Ok(())
 }
 
