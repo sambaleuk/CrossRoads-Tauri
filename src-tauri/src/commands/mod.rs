@@ -7,6 +7,7 @@ use crate::services::event_bus;
 use crate::services::cockpit_logic;
 use crate::services::safe_executor;
 use crate::services::skill_system;
+use crate::services::session_persistence;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -524,4 +525,51 @@ pub fn prepare_skill_injection(
     };
 
     Ok(skill_system::prepare_skill_injection(&selected, &cli_type, &ctx))
+}
+
+// Session persistence commands (PRD-21)
+
+#[tauri::command]
+pub fn save_session_state(project_path: String) -> Result<(), String> {
+    session_persistence::save_session_state(&project_path)
+}
+
+#[tauri::command]
+pub fn load_session_state(project_path: String, session_id: String) -> Result<Option<session_persistence::PersistedSession>, String> {
+    session_persistence::load_session_state(&project_path, &session_id)
+}
+
+#[tauri::command]
+pub fn detect_recoverable_sessions() -> Result<Vec<session_persistence::RecoveryInfo>, String> {
+    session_persistence::detect_recoverable_sessions()
+}
+
+#[tauri::command]
+pub fn discard_session(session_id: String) -> Result<(), String> {
+    session_persistence::discard_session(&session_id)
+}
+
+#[tauri::command]
+pub fn save_orchestration_history(entry: session_persistence::HistoryEntry) -> Result<(), String> {
+    session_persistence::save_to_history(&entry)
+}
+
+#[tauri::command]
+pub fn load_orchestration_history() -> Result<Vec<session_persistence::HistoryEntry>, String> {
+    session_persistence::load_history()
+}
+
+#[tauri::command]
+pub fn detect_orphaned_worktrees(repo_path: String) -> Result<Vec<session_persistence::OrphanedWorktree>, String> {
+    session_persistence::detect_orphaned_worktrees(&repo_path)
+}
+
+#[tauri::command]
+pub fn cleanup_worktrees(repo_path: String, worktree_paths: Vec<String>) -> Result<u32, String> {
+    session_persistence::cleanup_worktrees(&repo_path, &worktree_paths)
+}
+
+#[tauri::command]
+pub fn detect_stale_sessions() -> Result<Vec<session_persistence::RecoveryInfo>, String> {
+    session_persistence::detect_stale_sessions()
 }

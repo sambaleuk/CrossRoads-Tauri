@@ -9,3 +9,4 @@ pub mod event_bus;
 pub mod cockpit_logic;
 pub mod safe_executor;
 pub mod skill_system;
+pub mod session_persistence;

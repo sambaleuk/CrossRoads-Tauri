@@ -5,7 +5,8 @@ import type {
   SpawnRequest, AgentHealth, AgentMetrics,
   ParsedPrd, ExecutionLayer, LayerDispatchPlan,
   OrchestrationStart, OrchestrationRecordDb, McpSession,
-  ChairmanInput, ChairmanOutput, DangerousOperation, PolicyDecisionStr, LoadedSkill
+  ChairmanInput, ChairmanOutput, DangerousOperation, PolicyDecisionStr, LoadedSkill,
+  PersistedSession, RecoveryInfo, HistoryEntry, OrphanedWorktree
 } from '../models';
 
 // Session
@@ -238,3 +239,31 @@ export const prepareSkillInjection = (
   skillNames: string[], cliType: string, projectName: string, branch: string,
   storyTitle: string | undefined, slotIndex: number, agentType: string, projectPath?: string
 ) => invoke<string>('prepare_skill_injection', { skillNames, cliType, projectName, branch, storyTitle, slotIndex, agentType, projectPath });
+
+// Session Persistence + Recovery (PRD-21)
+export const saveSessionState = (projectPath: string) =>
+  invoke<void>('save_session_state', { projectPath });
+
+export const loadSessionState = (projectPath: string, sessionId: string) =>
+  invoke<PersistedSession | null>('load_session_state', { projectPath, sessionId });
+
+export const detectRecoverableSessions = () =>
+  invoke<RecoveryInfo[]>('detect_recoverable_sessions');
+
+export const discardSession = (sessionId: string) =>
+  invoke<void>('discard_session', { sessionId });
+
+export const saveOrchestrationHistory = (entry: HistoryEntry) =>
+  invoke<void>('save_orchestration_history', { entry });
+
+export const loadOrchestrationHistory = () =>
+  invoke<HistoryEntry[]>('load_orchestration_history');
+
+export const detectOrphanedWorktrees = (repoPath: string) =>
+  invoke<OrphanedWorktree[]>('detect_orphaned_worktrees', { repoPath });
+
+export const cleanupWorktrees = (repoPath: string, worktreePaths: string[]) =>
+  invoke<number>('cleanup_worktrees', { repoPath, worktreePaths });
+
+export const detectStaleSessions = () =>
+  invoke<RecoveryInfo[]>('detect_stale_sessions');

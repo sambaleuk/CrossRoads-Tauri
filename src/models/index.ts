@@ -318,6 +318,57 @@ export interface LoadedSkill {
   isUserOverride: boolean;
 }
 
+// PRD-21: Session Persistence types
+
+export interface PersistedSession {
+  sessionId: string;
+  projectPath: string;
+  status: string;
+  chairmanBrief?: string;
+  slots: Array<{
+    slotId: string;
+    slotIndex: number;
+    status: string;
+    agentType: string;
+    worktreePath?: string;
+    branchName?: string;
+    currentTask?: string;
+  }>;
+  savedAt: string;
+}
+
+export interface RecoveryInfo {
+  sessionId: string;
+  projectPath: string;
+  status: string;
+  chairmanBrief?: string;
+  slotCount: number;
+  runningSlots: number;
+  errorSlots: number;
+  createdAt: string;
+}
+
+export interface HistoryEntry {
+  prdPath: string;
+  prdName: string;
+  projectPath: string;
+  startedAt: string;
+  finishedAt: string;
+  totalStories: number;
+  completedStories: number;
+  failedStories: number;
+  totalCostCents: number;
+  mergedBranches: string[];
+  conflicts: string[];
+  durationSeconds: number;
+}
+
+export interface OrphanedWorktree {
+  path: string;
+  branch: string;
+  reason: string;
+}
+
 export interface OrchestrationRecordDb {
   id: string;
   cockpitSessionId: string;

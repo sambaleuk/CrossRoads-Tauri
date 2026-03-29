@@ -113,6 +113,16 @@ fn main() {
             commands::register_skills,
             commands::adapt_skill_for_cli,
             commands::prepare_skill_injection,
+            // PRD-21: Session Persistence + Recovery
+            commands::save_session_state,
+            commands::load_session_state,
+            commands::detect_recoverable_sessions,
+            commands::discard_session,
+            commands::save_orchestration_history,
+            commands::load_orchestration_history,
+            commands::detect_orphaned_worktrees,
+            commands::cleanup_worktrees,
+            commands::detect_stale_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
