@@ -6,7 +6,10 @@ import type {
   ParsedPrd, ExecutionLayer, LayerDispatchPlan,
   OrchestrationStart, OrchestrationRecordDb, McpSession,
   ChairmanInput, ChairmanOutput, DangerousOperation, PolicyDecisionStr, LoadedSkill,
-  PersistedSession, RecoveryInfo, HistoryEntry, OrphanedWorktree
+  PersistedSession, RecoveryInfo, HistoryEntry, OrphanedWorktree,
+  OrgRole, OrgRoleNode, BudgetConfig, BudgetStatus, CostProjection, BudgetAlert,
+  HeartbeatConfig, ScheduledRun, Workspace, AgentRuntimeConfig,
+  ConfigSnapshot, PerformanceProfile, AgentRecommendation, ConflictPrediction
 } from '../models';
 
 // Session
@@ -267,3 +270,45 @@ export const cleanupWorktrees = (repoPath: string, worktreePaths: string[]) =>
 
 export const detectStaleSessions = () =>
   invoke<RecoveryInfo[]>('detect_stale_sessions');
+
+// Phase 5: Org Chart
+export const createOrgRole = (sessionId: string, name: string, roleType: string, parentRoleId?: string, goalDescription?: string, authority?: string) =>
+  invoke<OrgRole>('create_org_role', { sessionId, name, roleType, parentRoleId, goalDescription, authority });
+export const fetchOrgRoles = (sessionId: string) => invoke<OrgRole[]>('fetch_org_roles', { sessionId });
+export const applyRoleTemplate = (sessionId: string, templateName: string) => invoke<OrgRole[]>('apply_role_template', { sessionId, templateName });
+export const getOrgTree = (sessionId: string) => invoke<OrgRoleNode[]>('get_org_tree', { sessionId });
+export const cascadeGoals = (sessionId: string, ceoGoal: string) => invoke<void>('cascade_goals', { sessionId, ceoGoal });
+
+// Phase 5: Budget
+export const createBudgetConfig = (sessionId: string, slotId?: string, budgetCents?: number) => invoke<BudgetConfig>('create_budget_config', { sessionId, slotId, budgetCents });
+export const checkBudget = (slotId: string) => invoke<BudgetStatus>('check_budget', { slotId });
+export const getCostProjection = (sessionId: string) => invoke<CostProjection>('get_cost_projection', { sessionId });
+export const fetchBudgetAlerts = (configId: string) => invoke<BudgetAlert[]>('fetch_budget_alerts', { configId });
+
+// Phase 5: Heartbeat
+export const createHeartbeat = (sessionId: string, slotId?: string, intervalMs?: number) => invoke<HeartbeatConfig>('create_heartbeat', { sessionId, slotId, intervalMs });
+export const createScheduledRun = (projectPath: string, prdPath: string, cronExpression?: string, triggerType?: string) => invoke<ScheduledRun>('create_scheduled_run', { projectPath, prdPath, cronExpression, triggerType });
+export const fetchScheduledRuns = (projectPath: string) => invoke<ScheduledRun[]>('fetch_scheduled_runs', { projectPath });
+
+// Phase 5: Workspace
+export const createWorkspace = (name: string, projectPath: string, color?: string) => invoke<Workspace>('create_workspace', { name, projectPath, color });
+export const fetchWorkspaces = () => invoke<Workspace[]>('fetch_workspaces');
+export const switchWorkspace = (id: string) => invoke<void>('switch_workspace', { id });
+export const deleteWorkspace = (id: string) => invoke<void>('delete_workspace', { id });
+
+// Phase 5: Runtime
+export const registerRuntime = (name: string, runtimeType: string, command?: string, url?: string, capabilities?: string) => invoke<AgentRuntimeConfig>('register_runtime', { name, runtimeType, command, url, capabilities });
+export const fetchRuntimes = () => invoke<AgentRuntimeConfig[]>('fetch_runtimes');
+export const registerBuiltinRuntimes = () => invoke<void>('register_builtin_runtimes');
+
+// Phase 5: Config
+export const createConfigSnapshot = (sessionId: string, configType: string, data: string, changedBy?: string, reason?: string) => invoke<ConfigSnapshot>('create_config_snapshot', { sessionId, configType, data, changedBy, reason });
+export const fetchConfigSnapshots = (sessionId: string, configType: string) => invoke<ConfigSnapshot[]>('fetch_config_snapshots', { sessionId, configType });
+export const rollbackConfig = (sessionId: string, configType: string, version: number) => invoke<void>('rollback_config', { sessionId, configType, version });
+
+// Phase 5: Learning
+export const fetchPerformanceProfiles = () => invoke<PerformanceProfile[]>('fetch_performance_profiles');
+export const recommendAgent = (taskCategory: string) => invoke<AgentRecommendation | null>('recommend_agent', { taskCategory });
+export const estimateStoryTime = (taskCategory: string, complexity: string) => invoke<number | null>('estimate_story_time', { taskCategory, complexity });
+export const predictConflicts = (stories: Array<{id: string; patterns: string[]}>) => invoke<ConflictPrediction[]>('predict_conflicts', { stories });
+export const generateRetro = (sessionId: string) => invoke<string>('generate_retro', { sessionId });

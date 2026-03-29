@@ -1,4 +1,5 @@
 use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo, metrics_repo, orchestration_repo};
+use crate::db::{org_role_repo, budget_repo, heartbeat_repo, workspace_repo, runtime_repo, config_snapshot_repo, learning_repo};
 use crate::services::{cli_detector, git_service};
 use crate::services::agent_lifecycle::{self, SpawnRequest, AgentHealth, HealthAlert};
 use crate::services::orchestration_engine;
@@ -8,6 +9,7 @@ use crate::services::cockpit_logic;
 use crate::services::safe_executor;
 use crate::services::skill_system;
 use crate::services::session_persistence;
+use crate::services::{org_chart, budget_engine, heartbeat_engine, learning_engine};
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -583,4 +585,166 @@ pub fn send_pty_input(slot_id: String, text: String) -> Result<(), String> {
     // For now, log and emit — actual PTY input routing is via ProcessRunner
     event_bus::emit_log("debug", &format!("slot-{}", slot_id), &format!("Input: {}", text.escape_debug()), Some(&slot_id));
     Ok(())
+}
+
+// ── Phase 5: Org Chart (PRD-35) ──
+
+#[tauri::command]
+pub fn create_org_role(session_id: String, name: String, role_type: String, parent_role_id: Option<String>, goal_description: Option<String>, authority: Option<String>) -> Result<org_role_repo::OrgRole, String> {
+    org_role_repo::create_role(&session_id, &name, &role_type, parent_role_id.as_deref(), goal_description.as_deref(), None, authority.as_deref().unwrap_or("limited")).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_org_roles(session_id: String) -> Result<Vec<org_role_repo::OrgRole>, String> {
+    org_role_repo::fetch_roles_for_session(&session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn apply_role_template(session_id: String, template_name: String) -> Result<Vec<org_chart::OrgRole>, String> {
+    org_chart::apply_template(&session_id, &template_name)
+}
+
+#[tauri::command]
+pub fn get_org_tree(session_id: String) -> Result<Vec<org_chart::OrgRoleNode>, String> {
+    org_chart::get_role_tree(&session_id)
+}
+
+#[tauri::command]
+pub fn cascade_goals(session_id: String, ceo_goal: String) -> Result<serde_json::Value, String> {
+    let result = org_chart::cascade_goals(&session_id, &ceo_goal)?;
+    Ok(serde_json::to_value(result).unwrap_or_default())
+}
+
+// ── Phase 5: Budget (PRD-36) ──
+
+#[tauri::command]
+pub fn create_budget_config(session_id: String, slot_id: Option<String>, budget_cents: Option<i32>) -> Result<budget_repo::BudgetConfig, String> {
+    budget_repo::create_budget_config(&session_id, slot_id.as_deref(), budget_cents.unwrap_or(2500) as i64, 80, true, true).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn check_budget(slot_id: String) -> Result<budget_engine::BudgetStatus, String> {
+    budget_engine::check_budget(&slot_id)
+}
+
+#[tauri::command]
+pub fn get_cost_projection(session_id: String) -> Result<budget_engine::CostProjection, String> {
+    budget_engine::get_projection(&session_id)
+}
+
+#[tauri::command]
+pub fn fetch_budget_alerts(config_id: String) -> Result<Vec<budget_repo::BudgetAlert>, String> {
+    budget_repo::fetch_alerts(&config_id).map_err(|e| e.to_string())
+}
+
+// ── Phase 5: Heartbeat (PRD-37) ──
+
+#[tauri::command]
+pub fn create_heartbeat(session_id: String, slot_id: Option<String>, interval_ms: Option<i32>) -> Result<heartbeat_repo::HeartbeatConfig, String> {
+    heartbeat_repo::create_heartbeat(&session_id, slot_id.as_deref(), interval_ms.unwrap_or(30000) as i64).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_scheduled_run(project_path: String, prd_path: String, cron_expression: Option<String>, trigger_type: Option<String>) -> Result<heartbeat_repo::ScheduledRun, String> {
+    heartbeat_repo::create_scheduled_run(&project_path, &prd_path, cron_expression.as_deref(), trigger_type.as_deref().unwrap_or("manual")).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_scheduled_runs(project_path: String) -> Result<Vec<heartbeat_repo::ScheduledRun>, String> {
+    heartbeat_repo::fetch_due_runs().map_err(|e| e.to_string())
+}
+
+// ── Phase 5: Workspace (PRD-38) ──
+
+#[tauri::command]
+pub fn create_workspace(name: String, project_path: String, color: Option<String>) -> Result<workspace_repo::Workspace, String> {
+    workspace_repo::create_workspace(&name, &project_path, color.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_workspaces() -> Result<Vec<workspace_repo::Workspace>, String> {
+    workspace_repo::fetch_all_workspaces().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn switch_workspace(id: String) -> Result<(), String> {
+    workspace_repo::switch_active(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_workspace(id: String) -> Result<(), String> {
+    workspace_repo::delete_workspace(&id).map_err(|e| e.to_string())
+}
+
+// ── Phase 5: Runtime (PRD-39) ──
+
+#[tauri::command]
+pub fn register_runtime(name: String, runtime_type: String, command: Option<String>, url: Option<String>, capabilities: Option<String>) -> Result<runtime_repo::AgentRuntime, String> {
+    runtime_repo::register_runtime(&name, &runtime_type, command.as_deref(), url.as_deref(), &capabilities.unwrap_or_else(|| "[]".into()), false).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_runtimes() -> Result<Vec<runtime_repo::AgentRuntime>, String> {
+    runtime_repo::fetch_all_runtimes().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn register_builtin_runtimes() -> Result<(), String> {
+    runtime_repo::register_builtins().map_err(|e| e.to_string())
+}
+
+// ── Phase 5: Config Versioning (PRD-40) ──
+
+#[tauri::command]
+pub fn create_config_snapshot(session_id: String, config_type: String, data: String, changed_by: Option<String>, reason: Option<String>) -> Result<config_snapshot_repo::ConfigSnapshot, String> {
+    config_snapshot_repo::create_snapshot(Some(&session_id), None, &config_type, &data, &changed_by.unwrap_or_else(|| "user".into()), reason.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_config_snapshots(session_id: String, config_type: String) -> Result<Vec<config_snapshot_repo::ConfigSnapshot>, String> {
+    config_snapshot_repo::fetch_snapshots(&session_id, &config_type).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rollback_config(session_id: String, config_type: String, version: i32) -> Result<(), String> {
+    let snapshot = config_snapshot_repo::fetch_snapshot_by_version(&session_id, &config_type, version)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Snapshot v{} not found for {}", version, config_type))?;
+    // Create new snapshot with rollback data
+    config_snapshot_repo::create_snapshot(Some(&session_id), None, &config_type, &snapshot.data, "system", Some(&format!("Rollback to v{}", version)))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Phase 5: Learning (PRD-41) ──
+
+#[tauri::command]
+pub fn fetch_performance_profiles() -> Result<Vec<learning_repo::PerformanceProfile>, String> {
+    learning_repo::fetch_all_profiles().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn recommend_agent(task_category: String) -> Option<learning_engine::AgentRecommendation> {
+    learning_engine::recommend_agent(&task_category)
+}
+
+#[tauri::command]
+pub fn estimate_story_time(task_category: String, complexity: String) -> Option<i64> {
+    learning_engine::estimate_story_time(&task_category, &complexity)
+}
+
+#[tauri::command]
+pub fn predict_conflicts(stories: Vec<serde_json::Value>) -> Vec<learning_engine::ConflictPrediction> {
+    let parsed: Vec<(String, Vec<String>)> = stories.iter().filter_map(|s| {
+        let id = s.get("id")?.as_str()?.to_string();
+        let patterns: Vec<String> = s.get("patterns")?.as_array()?
+            .iter().filter_map(|p| p.as_str().map(String::from)).collect();
+        Some((id, patterns))
+    }).collect();
+    learning_engine::predict_conflicts(&parsed)
+}
+
+#[tauri::command]
+pub fn generate_retro(session_id: String) -> Result<String, String> {
+    learning_engine::generate_retro(&session_id)
 }

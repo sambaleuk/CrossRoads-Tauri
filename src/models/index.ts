@@ -388,3 +388,207 @@ export interface OrchestrationRecordDb {
   finishedAt?: string;
   updatedAt: string;
 }
+
+// Phase 5: Org Chart
+export interface OrgRole {
+  id: string;
+  sessionId: string;
+  name: string;
+  roleType: string;
+  parentRoleId?: string;
+  assignedSlotId?: string;
+  goalDescription?: string;
+  skillNames?: string;
+  authority: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrgRoleNode extends OrgRole {
+  children: OrgRoleNode[];
+}
+
+// Phase 5: Budget Control
+export interface BudgetConfig {
+  id: string;
+  sessionId: string;
+  slotId?: string;
+  budgetCents: number;
+  warningThresholdPct: number;
+  hardStopEnabled: boolean;
+  throttleEnabled: boolean;
+  dailyLimitCents?: number;
+  perStoryLimitCents?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetAlert {
+  id: string;
+  budgetConfigId: string;
+  alertType: string;
+  currentSpendCents: number;
+  budgetCents: number;
+  percentUsed: number;
+  message: string;
+  acknowledged: boolean;
+  createdAt: string;
+}
+
+export interface BudgetStatus {
+  status: 'ok' | 'warning' | 'exceeded';
+  percentUsed: number;
+  remainingCents: number;
+  projectedTotal: number;
+}
+
+export interface CostProjection {
+  currentSpend: number;
+  burnRateCentsPerHour: number;
+  projectedTotal: number;
+  timeToExhaustionMinutes: number;
+  overBudget: boolean;
+}
+
+// Phase 5: Heartbeat
+export interface HeartbeatConfig {
+  id: string;
+  sessionId: string;
+  slotId?: string;
+  intervalMs: number;
+  enabled: boolean;
+  lastPulseAt?: string;
+  lastPulseResult?: string;
+  consecutiveFailures: number;
+  maxFailures: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduledRun {
+  id: string;
+  projectPath: string;
+  prdPath: string;
+  cronExpression?: string;
+  triggerType: string;
+  triggerConfig?: string;
+  roleTemplateName?: string;
+  budgetPreset?: string;
+  enabled: boolean;
+  lastRunAt?: string;
+  lastRunResult?: string;
+  nextRunAt?: string;
+  createdAt: string;
+}
+
+export interface PulseResult {
+  alive: boolean;
+  gitChanges: number;
+  testsPassed: number;
+  testsFailed: number;
+  storiesCompleted: number;
+  mergeable: boolean;
+  errors: string[];
+}
+
+// Phase 5: Workspace
+export interface Workspace {
+  id: string;
+  name: string;
+  projectPath: string;
+  color: string;
+  icon?: string;
+  isActive: boolean;
+  maxSlots: number;
+  totalBudgetCents?: number;
+  metadata?: string;
+  lastAccessedAt: string;
+  createdAt: string;
+}
+
+// Phase 5: Agent Runtime
+export interface AgentRuntimeConfig {
+  id: string;
+  name: string;
+  runtimeType: string;
+  command?: string;
+  url?: string;
+  dockerImage?: string;
+  healthCheckCommand?: string;
+  configSchema?: string;
+  configDefaults?: string;
+  capabilities: string;
+  icon?: string;
+  color?: string;
+  isBuiltin: boolean;
+  isEnabled: boolean;
+  createdAt: string;
+}
+
+// Phase 5: Config Versioning
+export interface ConfigSnapshot {
+  id: string;
+  sessionId?: string;
+  workspaceId?: string;
+  configType: string;
+  version: number;
+  data: string;
+  diff?: string;
+  changedBy: string;
+  changeReason?: string;
+  createdAt: string;
+}
+
+// Phase 5: Learning
+export interface LearningRecord {
+  id: string;
+  sessionId: string;
+  storyId: string;
+  storyTitle: string;
+  storyComplexity: string;
+  agentType: string;
+  runtimeId?: string;
+  model?: string;
+  durationMs: number;
+  costCents: number;
+  filesChanged: number;
+  linesAdded: number;
+  linesRemoved: number;
+  testsRun: number;
+  testsPassed: number;
+  testsFailed: number;
+  conflictsEncountered: number;
+  retriesNeeded: number;
+  success: boolean;
+  failureReason?: string;
+  filePatterns: string;
+  createdAt: string;
+}
+
+export interface PerformanceProfile {
+  id: string;
+  agentType: string;
+  runtimeId?: string;
+  taskCategory: string;
+  totalExecutions: number;
+  successRate: number;
+  avgDurationMs: number;
+  avgCostCents: number;
+  avgFilesChanged: number;
+  avgTestPassRate: number;
+  conflictRate: number;
+  lastUpdatedAt: string;
+}
+
+export interface AgentRecommendation {
+  agentType: string;
+  confidence: number;
+  reason: string;
+}
+
+export interface ConflictPrediction {
+  storyA: string;
+  storyB: string;
+  overlappingPatterns: string[];
+  risk: string;
+}

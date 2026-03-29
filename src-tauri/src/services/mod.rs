@@ -10,3 +10,7 @@ pub mod cockpit_logic;
 pub mod safe_executor;
 pub mod skill_system;
 pub mod session_persistence;
+pub mod org_chart;
+pub mod budget_engine;
+pub mod heartbeat_engine;
+pub mod learning_engine;

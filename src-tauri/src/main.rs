@@ -125,6 +125,40 @@ fn main() {
             commands::detect_stale_sessions,
             // PRD-23: Terminal PTY input
             commands::send_pty_input,
+            // Phase 5: Org Chart (PRD-35)
+            commands::create_org_role,
+            commands::fetch_org_roles,
+            commands::apply_role_template,
+            commands::get_org_tree,
+            commands::cascade_goals,
+            // Phase 5: Budget (PRD-36)
+            commands::create_budget_config,
+            commands::check_budget,
+            commands::get_cost_projection,
+            commands::fetch_budget_alerts,
+            // Phase 5: Heartbeat (PRD-37)
+            commands::create_heartbeat,
+            commands::create_scheduled_run,
+            commands::fetch_scheduled_runs,
+            // Phase 5: Workspace (PRD-38)
+            commands::create_workspace,
+            commands::fetch_workspaces,
+            commands::switch_workspace,
+            commands::delete_workspace,
+            // Phase 5: Runtime (PRD-39)
+            commands::register_runtime,
+            commands::fetch_runtimes,
+            commands::register_builtin_runtimes,
+            // Phase 5: Config (PRD-40)
+            commands::create_config_snapshot,
+            commands::fetch_config_snapshots,
+            commands::rollback_config,
+            // Phase 5: Learning (PRD-41)
+            commands::fetch_performance_profiles,
+            commands::recommend_agent,
+            commands::estimate_story_time,
+            commands::predict_conflicts,
+            commands::generate_retro,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

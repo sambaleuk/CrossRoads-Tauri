@@ -52,6 +52,13 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("v6_cost_event", V6_COST_EVENT),
         ("v7_agent_metrics", V7_AGENT_METRICS),
         ("v8_orchestration_record", V8_ORCHESTRATION_RECORD),
+        ("v9_org_role", V9_ORG_ROLE),
+        ("v10_budget", V10_BUDGET),
+        ("v11_heartbeat", V11_HEARTBEAT),
+        ("v12_workspace", V12_WORKSPACE),
+        ("v13_agent_runtime", V13_AGENT_RUNTIME),
+        ("v14_config_snapshot", V14_CONFIG_SNAPSHOT),
+        ("v15_learning", V15_LEARNING),
     ];
 
     for (name, sql) in migrations {
@@ -213,6 +220,193 @@ const V8_ORCHESTRATION_RECORD: &str = "
     CREATE INDEX idx_orch_record_status ON orchestration_record (status);
 ";
 
+const V9_ORG_ROLE: &str = "
+    CREATE TABLE org_role (
+        id TEXT PRIMARY KEY NOT NULL,
+        sessionId TEXT NOT NULL REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        roleType TEXT NOT NULL DEFAULT 'custom',
+        parentRoleId TEXT REFERENCES org_role(id) ON DELETE SET NULL,
+        assignedSlotId TEXT REFERENCES agent_slot(id) ON DELETE SET NULL,
+        goalDescription TEXT,
+        skillNames TEXT,
+        authority TEXT NOT NULL DEFAULT 'limited',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_org_role_session ON org_role (sessionId);
+    CREATE INDEX idx_org_role_parent ON org_role (parentRoleId);
+";
+
+const V10_BUDGET: &str = "
+    CREATE TABLE budget_config (
+        id TEXT PRIMARY KEY NOT NULL,
+        sessionId TEXT NOT NULL REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        slotId TEXT REFERENCES agent_slot(id) ON DELETE CASCADE,
+        budgetCents INTEGER NOT NULL DEFAULT 2500,
+        warningThresholdPct INTEGER NOT NULL DEFAULT 80,
+        hardStopEnabled INTEGER NOT NULL DEFAULT 1,
+        throttleEnabled INTEGER NOT NULL DEFAULT 1,
+        dailyLimitCents INTEGER,
+        perStoryLimitCents INTEGER,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_budget_config_session ON budget_config (sessionId);
+    CREATE INDEX idx_budget_config_slot ON budget_config (slotId);
+
+    CREATE TABLE budget_alert (
+        id TEXT PRIMARY KEY NOT NULL,
+        budgetConfigId TEXT NOT NULL REFERENCES budget_config(id) ON DELETE CASCADE,
+        alertType TEXT NOT NULL,
+        currentSpendCents INTEGER NOT NULL,
+        budgetCents INTEGER NOT NULL,
+        percentUsed REAL NOT NULL,
+        message TEXT NOT NULL,
+        acknowledged INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_budget_alert_config ON budget_alert (budgetConfigId);
+";
+
+const V11_HEARTBEAT: &str = "
+    CREATE TABLE heartbeat_config (
+        id TEXT PRIMARY KEY NOT NULL,
+        sessionId TEXT NOT NULL REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        slotId TEXT REFERENCES agent_slot(id) ON DELETE CASCADE,
+        intervalMs INTEGER NOT NULL DEFAULT 30000,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        lastPulseAt TEXT,
+        lastPulseResult TEXT,
+        consecutiveFailures INTEGER NOT NULL DEFAULT 0,
+        maxFailures INTEGER NOT NULL DEFAULT 5,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_heartbeat_session ON heartbeat_config (sessionId);
+
+    CREATE TABLE scheduled_run (
+        id TEXT PRIMARY KEY NOT NULL,
+        projectPath TEXT NOT NULL,
+        prdPath TEXT NOT NULL,
+        cronExpression TEXT,
+        triggerType TEXT NOT NULL DEFAULT 'manual',
+        triggerConfig TEXT,
+        roleTemplateName TEXT,
+        budgetPreset TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        lastRunAt TEXT,
+        lastRunResult TEXT,
+        nextRunAt TEXT,
+        createdAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_scheduled_run_project ON scheduled_run (projectPath);
+    CREATE INDEX idx_scheduled_run_next ON scheduled_run (nextRunAt);
+";
+
+const V12_WORKSPACE: &str = "
+    CREATE TABLE workspace (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        projectPath TEXT NOT NULL UNIQUE,
+        color TEXT NOT NULL DEFAULT '#0DF170',
+        icon TEXT,
+        isActive INTEGER NOT NULL DEFAULT 0,
+        maxSlots INTEGER NOT NULL DEFAULT 6,
+        totalBudgetCents INTEGER,
+        metadata TEXT,
+        lastAccessedAt TEXT NOT NULL,
+        createdAt TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX idx_workspace_path ON workspace (projectPath);
+    CREATE INDEX idx_workspace_active ON workspace (isActive);
+";
+
+const V13_AGENT_RUNTIME: &str = "
+    CREATE TABLE agent_runtime (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL UNIQUE,
+        runtimeType TEXT NOT NULL DEFAULT 'cli',
+        command TEXT,
+        url TEXT,
+        dockerImage TEXT,
+        healthCheckCommand TEXT,
+        configSchema TEXT,
+        configDefaults TEXT,
+        capabilities TEXT NOT NULL DEFAULT '[]',
+        icon TEXT,
+        color TEXT,
+        isBuiltin INTEGER NOT NULL DEFAULT 0,
+        isEnabled INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX idx_runtime_name ON agent_runtime (name);
+";
+
+const V14_CONFIG_SNAPSHOT: &str = "
+    CREATE TABLE config_snapshot (
+        id TEXT PRIMARY KEY NOT NULL,
+        sessionId TEXT REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        workspaceId TEXT REFERENCES workspace(id) ON DELETE CASCADE,
+        configType TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        data TEXT NOT NULL,
+        diff TEXT,
+        changedBy TEXT NOT NULL DEFAULT 'system',
+        changeReason TEXT,
+        createdAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_config_snapshot_session ON config_snapshot (sessionId, configType, version);
+    CREATE INDEX idx_config_snapshot_workspace ON config_snapshot (workspaceId);
+";
+
+const V15_LEARNING: &str = "
+    CREATE TABLE learning_record (
+        id TEXT PRIMARY KEY NOT NULL,
+        sessionId TEXT NOT NULL REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        storyId TEXT NOT NULL,
+        storyTitle TEXT NOT NULL,
+        storyComplexity TEXT NOT NULL DEFAULT 'moderate',
+        agentType TEXT NOT NULL,
+        runtimeId TEXT REFERENCES agent_runtime(id),
+        model TEXT,
+        durationMs INTEGER NOT NULL DEFAULT 0,
+        costCents INTEGER NOT NULL DEFAULT 0,
+        filesChanged INTEGER NOT NULL DEFAULT 0,
+        linesAdded INTEGER NOT NULL DEFAULT 0,
+        linesRemoved INTEGER NOT NULL DEFAULT 0,
+        testsRun INTEGER NOT NULL DEFAULT 0,
+        testsPassed INTEGER NOT NULL DEFAULT 0,
+        testsFailed INTEGER NOT NULL DEFAULT 0,
+        conflictsEncountered INTEGER NOT NULL DEFAULT 0,
+        retriesNeeded INTEGER NOT NULL DEFAULT 0,
+        success INTEGER NOT NULL DEFAULT 1,
+        failureReason TEXT,
+        filePatterns TEXT NOT NULL DEFAULT '[]',
+        createdAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_learning_session ON learning_record (sessionId);
+    CREATE INDEX idx_learning_agent ON learning_record (agentType);
+    CREATE INDEX idx_learning_story ON learning_record (storyId);
+
+    CREATE TABLE performance_profile (
+        id TEXT PRIMARY KEY NOT NULL,
+        agentType TEXT NOT NULL,
+        runtimeId TEXT REFERENCES agent_runtime(id),
+        taskCategory TEXT NOT NULL,
+        totalExecutions INTEGER NOT NULL DEFAULT 0,
+        successRate REAL NOT NULL DEFAULT 0.0,
+        avgDurationMs INTEGER NOT NULL DEFAULT 0,
+        avgCostCents INTEGER NOT NULL DEFAULT 0,
+        avgFilesChanged REAL NOT NULL DEFAULT 0.0,
+        avgTestPassRate REAL NOT NULL DEFAULT 0.0,
+        conflictRate REAL NOT NULL DEFAULT 0.0,
+        lastUpdatedAt TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX idx_perf_profile_unique ON performance_profile (agentType, taskCategory);
+    CREATE INDEX idx_perf_profile_agent ON performance_profile (agentType);
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,7 +421,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 8);
+        assert_eq!(count, 15);
     }
 
     #[test]
@@ -245,6 +439,16 @@ mod tests {
             "cost_event",
             "agent_metrics",
             "orchestration_record",
+            "org_role",
+            "budget_config",
+            "budget_alert",
+            "heartbeat_config",
+            "scheduled_run",
+            "workspace",
+            "agent_runtime",
+            "config_snapshot",
+            "learning_record",
+            "performance_profile",
         ];
 
         for table in tables {
@@ -270,7 +474,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 8);
+        assert_eq!(count, 15);
     }
 
     #[test]
