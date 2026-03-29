@@ -35,6 +35,15 @@ jobs:
             src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Build frontend (needed for tauri::generate_context)
+        run: npm ci && npm run build
+
       - name: Run tests
         working-directory: src-tauri
         run: cargo test -- --test-threads=1
