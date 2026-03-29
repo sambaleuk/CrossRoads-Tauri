@@ -24,7 +24,26 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // PRD-02: Repository commands will be registered here
+            commands::create_session,
+            commands::fetch_session,
+            commands::update_session,
+            commands::delete_session,
+            commands::active_session,
+            commands::fetch_all_sessions,
+            commands::create_slot,
+            commands::update_slot,
+            commands::fetch_slots,
+            commands::record_usage,
+            commands::cost_summary_slot,
+            commands::cost_summary_session,
+            commands::create_gate,
+            commands::approve_gate,
+            commands::reject_gate,
+            commands::fetch_gates,
+            commands::publish_message,
+            commands::fetch_messages,
+            commands::create_skill,
+            commands::find_skill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
