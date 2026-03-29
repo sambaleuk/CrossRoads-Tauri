@@ -1,0 +1,55 @@
+import { create } from 'zustand';
+import type { CockpitSession, AgentSlot, UsageSummary } from '../models';
+
+interface AppState {
+  // Project
+  projectPath: string | null;
+  isGitRepo: boolean;
+  setProjectPath: (path: string) => void;
+
+  // Session
+  session: CockpitSession | null;
+  setSession: (session: CockpitSession | null) => void;
+
+  // Slots
+  slots: AgentSlot[];
+  setSlots: (slots: AgentSlot[]) => void;
+
+  // Cockpit
+  showCockpit: boolean;
+  toggleCockpit: () => void;
+  sessionCost: UsageSummary;
+  setSessionCost: (cost: UsageSummary) => void;
+  slotCosts: Record<string, UsageSummary>;
+  setSlotCosts: (costs: Record<string, UsageSummary>) => void;
+
+  // UI
+  showInspector: boolean;
+  toggleInspector: () => void;
+  showChat: boolean;
+  toggleChat: () => void;
+}
+
+export const useAppStore = create<AppState>((set) => ({
+  projectPath: null,
+  isGitRepo: false,
+  setProjectPath: (path) => set({ projectPath: path, isGitRepo: true }),
+
+  session: null,
+  setSession: (session) => set({ session }),
+
+  slots: [],
+  setSlots: (slots) => set({ slots }),
+
+  showCockpit: false,
+  toggleCockpit: () => set((s) => ({ showCockpit: !s.showCockpit })),
+  sessionCost: { totalInputTokens: 0, totalOutputTokens: 0, totalCostCents: 0, eventCount: 0 },
+  setSessionCost: (cost) => set({ sessionCost: cost }),
+  slotCosts: {},
+  setSlotCosts: (costs) => set({ slotCosts: costs }),
+
+  showInspector: false,
+  toggleInspector: () => set((s) => ({ showInspector: !s.showInspector })),
+  showChat: true,
+  toggleChat: () => set((s) => ({ showChat: !s.showChat })),
+}));

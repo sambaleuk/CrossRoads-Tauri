@@ -1,18 +1,77 @@
-import React from 'react';
+import { useEffect } from 'react';
+import { Toolbar } from './components/Toolbar';
+import { Dashboard } from './views/Dashboard';
+import { useAppStore } from './stores/appStore';
 
-// PRD-05 will replace this with the full Dashboard layout
 export default function App() {
+  const { showCockpit, showInspector, showChat } = useAppStore();
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+        switch (e.key.toLowerCase()) {
+          case 'c': e.preventDefault(); useAppStore.getState().toggleCockpit(); break;
+          case 'i': e.preventDefault(); useAppStore.getState().toggleInspector(); break;
+          case 'o': e.preventDefault(); useAppStore.getState().toggleChat(); break;
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   return (
-    <div className="h-screen w-screen bg-gray-950 text-gray-100 flex items-center justify-center">
-      <div className="text-center space-y-4">
-        <div className="text-6xl">🧠</div>
-        <h1 className="text-3xl font-bold font-mono">XRoads</h1>
-        <p className="text-gray-400 text-sm font-mono">
-          Multi-agent orchestration platform
-        </p>
-        <p className="text-gray-600 text-xs font-mono">
-          Tauri + React + Rust — scaffold ready
-        </p>
+    <div className="h-screen w-screen bg-gray-950 text-gray-100 flex flex-col overflow-hidden">
+      <Toolbar />
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: Chat panel */}
+        {showChat && (
+          <div className="w-72 border-r border-gray-800 flex flex-col bg-gray-950">
+            <div className="p-3 border-b border-gray-800">
+              <h2 className="text-xs font-bold font-mono text-gray-400">ORCHESTRATOR</h2>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-[10px] text-gray-600 font-mono text-center px-4">
+                Chat panel — PRD-06
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Center: Terminal grid */}
+        <Dashboard />
+
+        {/* Right: Cockpit panel */}
+        {showCockpit && (
+          <div className="w-80 border-l border-gray-800 flex flex-col bg-gray-950">
+            <div className="p-3 border-b border-gray-800 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-neon-green shadow-[0_0_6px_theme(colors.neon.green)]" />
+              <h2 className="text-xs font-bold font-mono text-neon-green">COCKPIT</h2>
+              <span className="text-[9px] font-mono text-neon-green/60 bg-neon-green/10 px-1.5 py-0.5 rounded">ACTIVE</span>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-[10px] text-gray-600 font-mono text-center px-4">
+                Cockpit mode — PRD-08
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Far right: Inspector */}
+        {showInspector && (
+          <div className="w-72 border-l border-gray-800 flex flex-col bg-gray-950">
+            <div className="p-3 border-b border-gray-800">
+              <h2 className="text-xs font-bold font-mono text-gray-400">INSPECTOR</h2>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-[10px] text-gray-600 font-mono text-center px-4">
+                Git + MCP — PRD-07
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
