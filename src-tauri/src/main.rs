@@ -46,6 +46,13 @@ fn main() {
             commands::find_skill,
             commands::detect_cli_tools,
             commands::find_loop_script,
+            commands::is_git_repo,
+            commands::git_current_branch,
+            commands::git_recent_commits,
+            commands::git_branches,
+            commands::git_create_worktree,
+            commands::git_delete_worktree,
+            commands::git_coordinate_merge,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

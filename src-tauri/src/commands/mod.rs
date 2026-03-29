@@ -1,5 +1,5 @@
 use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo};
-use crate::services::cli_detector;
+use crate::services::{cli_detector, git_service};
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 
 // Session commands
@@ -117,4 +117,41 @@ pub fn detect_cli_tools() -> Vec<cli_detector::CliStatus> {
 #[tauri::command]
 pub fn find_loop_script(name: String) -> Option<String> {
     cli_detector::find_loop_script(&name)
+}
+
+// Git commands
+#[tauri::command]
+pub fn is_git_repo(path: String) -> bool {
+    git_service::is_git_repo(&path)
+}
+
+#[tauri::command]
+pub fn git_current_branch(path: String) -> Result<String, String> {
+    git_service::get_current_branch(&path)
+}
+
+#[tauri::command]
+pub fn git_recent_commits(path: String, count: usize) -> Result<Vec<git_service::GitCommit>, String> {
+    git_service::get_recent_commits(&path, count)
+}
+
+#[tauri::command]
+pub fn git_branches(path: String) -> Result<Vec<String>, String> {
+    git_service::get_branches(&path)
+}
+
+#[tauri::command]
+pub fn git_create_worktree(repo_path: String, worktree_path: String, branch: String) -> Result<(), String> {
+    git_service::create_worktree(&repo_path, &worktree_path, &branch)
+}
+
+#[tauri::command]
+pub fn git_delete_worktree(repo_path: String, worktree_path: String) -> Result<(), String> {
+    git_service::delete_worktree(&repo_path, &worktree_path)
+}
+
+#[tauri::command]
+pub fn git_coordinate_merge(repo_path: String, branches: Vec<String>) -> Result<git_service::MergeResult, String> {
+    let refs: Vec<&str> = branches.iter().map(|s| s.as_str()).collect();
+    git_service::coordinate_merge(&repo_path, &refs)
 }
