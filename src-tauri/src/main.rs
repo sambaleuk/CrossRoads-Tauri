@@ -78,6 +78,13 @@ fn main() {
             commands::complete_orchestration,
             commands::fetch_orchestration_record,
             commands::fetch_orchestration_records,
+            // PRD-16: MCP Client + Server
+            commands::mcp_detect_node,
+            commands::mcp_find_server,
+            commands::mcp_persist_session,
+            commands::mcp_load_session,
+            commands::mcp_record_decision,
+            commands::mcp_generate_handoff,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

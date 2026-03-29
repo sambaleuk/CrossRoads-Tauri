@@ -2,6 +2,7 @@ use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, ski
 use crate::services::{cli_detector, git_service};
 use crate::services::agent_lifecycle::{self, SpawnRequest, AgentHealth, HealthAlert};
 use crate::services::orchestration_engine;
+use crate::services::mcp_service;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -316,4 +317,55 @@ pub fn fetch_orchestration_record(record_id: String) -> Result<Option<orchestrat
 #[tauri::command]
 pub fn fetch_orchestration_records(session_id: String) -> Result<Vec<orchestration_repo::OrchestrationRecord>, String> {
     orchestration_repo::fetch_records_for_session(&session_id).map_err(|e| e.to_string())
+}
+
+// MCP commands (PRD-16)
+
+#[tauri::command]
+pub fn mcp_detect_node() -> Result<String, String> {
+    mcp_service::detect_node_path()
+}
+
+#[tauri::command]
+pub fn mcp_find_server(project_root: Option<String>) -> Result<String, String> {
+    mcp_service::find_mcp_server(project_root.as_deref())
+}
+
+#[tauri::command]
+pub fn mcp_persist_session(worktree_path: String, session_id: String, project_path: String, agent_type: String) -> Result<(), String> {
+    let session = mcp_service::McpSession {
+        session_id,
+        project_path,
+        agent_type,
+        started_at: chrono::Utc::now().to_rfc3339(),
+        decisions: Vec::new(),
+    };
+    mcp_service::persist_session(&worktree_path, &session)
+}
+
+#[tauri::command]
+pub fn mcp_load_session(worktree_path: String, session_id: String) -> Result<Option<mcp_service::McpSession>, String> {
+    mcp_service::load_session(&worktree_path, &session_id)
+}
+
+#[tauri::command]
+pub fn mcp_record_decision(worktree_path: String, session_id: String, decision_type: String, description: String, context: Option<String>) -> Result<(), String> {
+    let mut session = mcp_service::load_session(&worktree_path, &session_id)?
+        .ok_or_else(|| format!("Session {} not found", session_id))?;
+
+    session.decisions.push(mcp_service::McpDecision {
+        decision_type,
+        description,
+        context,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    });
+
+    mcp_service::persist_session(&worktree_path, &session)
+}
+
+#[tauri::command]
+pub fn mcp_generate_handoff(worktree_path: String, session_id: String, max_tokens: Option<u32>) -> Result<String, String> {
+    let session = mcp_service::load_session(&worktree_path, &session_id)?
+        .ok_or_else(|| format!("Session {} not found", session_id))?;
+    Ok(mcp_service::generate_handoff(&session, max_tokens.unwrap_or(4000)))
 }

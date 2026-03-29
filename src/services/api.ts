@@ -4,7 +4,7 @@ import type {
   ExecutionGate, AgentMessage, MetierSkill,
   SpawnRequest, AgentHealth, AgentMetrics,
   ParsedPrd, ExecutionLayer, LayerDispatchPlan,
-  OrchestrationStart, OrchestrationRecordDb
+  OrchestrationStart, OrchestrationRecordDb, McpSession
 } from '../models';
 
 // Session
@@ -155,3 +155,22 @@ export const fetchOrchestrationRecord = (recordId: string) =>
 
 export const fetchOrchestrationRecords = (sessionId: string) =>
   invoke<OrchestrationRecordDb[]>('fetch_orchestration_records', { sessionId });
+
+// MCP (PRD-16)
+export const mcpDetectNode = () =>
+  invoke<string>('mcp_detect_node');
+
+export const mcpFindServer = (projectRoot?: string) =>
+  invoke<string>('mcp_find_server', { projectRoot });
+
+export const mcpPersistSession = (worktreePath: string, sessionId: string, projectPath: string, agentType: string) =>
+  invoke<void>('mcp_persist_session', { worktreePath, sessionId, projectPath, agentType });
+
+export const mcpLoadSession = (worktreePath: string, sessionId: string) =>
+  invoke<McpSession | null>('mcp_load_session', { worktreePath, sessionId });
+
+export const mcpRecordDecision = (worktreePath: string, sessionId: string, decisionType: string, description: string, context?: string) =>
+  invoke<void>('mcp_record_decision', { worktreePath, sessionId, decisionType, description, context });
+
+export const mcpGenerateHandoff = (worktreePath: string, sessionId: string, maxTokens?: number) =>
+  invoke<string>('mcp_generate_handoff', { worktreePath, sessionId, maxTokens });

@@ -204,6 +204,23 @@ export interface OrchestrationStart {
   plans: LayerDispatchPlan[];
 }
 
+// PRD-16: MCP types
+
+export interface McpSession {
+  sessionId: string;
+  projectPath: string;
+  agentType: string;
+  startedAt: string;
+  decisions: McpDecision[];
+}
+
+export interface McpDecision {
+  decisionType: string;
+  description: string;
+  context?: string;
+  timestamp: string;
+}
+
 export interface OrchestrationRecordDb {
   id: string;
   cockpitSessionId: string;
