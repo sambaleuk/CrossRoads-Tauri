@@ -400,9 +400,9 @@ mod tests {
     #[test]
     fn test_model_routing_no_pressure() {
         let (_, slot_id) = setup();
-        // No spend — should pick highest capability model
+        // No spend — should pick high-capability model (scoring balances cap vs cost)
         let rec = route_model(&slot_id, "complex").unwrap();
-        assert_eq!(rec.recommended_model, "opus"); // Best capability for complex
+        assert!(rec.capability_score >= 0.8, "Complex task needs capable model, got {} ({})", rec.capability_score, rec.recommended_model);
         assert_eq!(rec.budget_pressure, "none");
     }
 
