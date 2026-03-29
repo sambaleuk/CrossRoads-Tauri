@@ -1,0 +1,30 @@
+# Build
+dist/
+node_modules/
+src-tauri/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# PRD (user-specific)
+prd.json
+prd-*.json
+!prd.example.json
+
+# Modragor
+model.json
+states.json
