@@ -3,6 +3,7 @@ use crate::services::{cli_detector, git_service};
 use crate::services::agent_lifecycle::{self, SpawnRequest, AgentHealth, HealthAlert};
 use crate::services::orchestration_engine;
 use crate::services::mcp_service;
+use crate::services::event_bus;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -368,4 +369,30 @@ pub fn mcp_generate_handoff(worktree_path: String, session_id: String, max_token
     let session = mcp_service::load_session(&worktree_path, &session_id)?
         .ok_or_else(|| format!("Session {} not found", session_id))?;
     Ok(mcp_service::generate_handoff(&session, max_tokens.unwrap_or(4000)))
+}
+
+// Event bus commands (PRD-17)
+
+#[tauri::command]
+pub fn emit_agent_status(slot_id: String, status: String, progress: Option<f64>, task: Option<String>, agent_type: Option<String>) {
+    event_bus::emit_agent_status(&slot_id, &status, progress, task.as_deref(), agent_type.as_deref());
+}
+
+#[tauri::command]
+pub fn emit_log_entry(level: String, source: String, message: String, slot_id: Option<String>) {
+    event_bus::emit_log(&level, &source, &message, slot_id.as_deref());
+}
+
+#[tauri::command]
+pub fn emit_gate_event(gate_id: String, slot_id: String, operation_type: String, risk_level: String, status: String) {
+    if status == "pending" {
+        event_bus::emit_gate_created(&gate_id, &slot_id, &operation_type, &risk_level);
+    } else {
+        event_bus::emit_gate_resolved(&gate_id, &slot_id, &operation_type, &risk_level, &status);
+    }
+}
+
+#[tauri::command]
+pub fn flush_pty_buffers() {
+    event_bus::flush_pty_buffers();
 }

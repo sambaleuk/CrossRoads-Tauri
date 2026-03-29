@@ -21,6 +21,11 @@ fn main() {
             db::manager::initialize(db_path.to_str().unwrap())
                 .expect("failed to initialize database");
             log::info!("Database initialized at {:?}", db_path);
+
+            // Initialize event bus with app handle
+            services::event_bus::init(app.handle().clone());
+            log::info!("Event bus initialized");
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -85,6 +90,11 @@ fn main() {
             commands::mcp_load_session,
             commands::mcp_record_decision,
             commands::mcp_generate_handoff,
+            // PRD-17: Event Bus
+            commands::emit_agent_status,
+            commands::emit_log_entry,
+            commands::emit_gate_event,
+            commands::flush_pty_buffers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

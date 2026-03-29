@@ -221,6 +221,56 @@ export interface McpDecision {
   timestamp: string;
 }
 
+// PRD-17: Event Bus payload types
+
+export interface PtyOutputPayload {
+  slotId: string;
+  text: string;
+}
+
+export interface AgentStatusPayload {
+  slotId: string;
+  status: AgentSlotStatus;
+  progress?: number;
+  task?: string;
+  agentType?: string;
+}
+
+export interface LogEntryPayload {
+  level: string;
+  source: string;
+  message: string;
+  timestamp: string;
+  slotId?: string;
+}
+
+export interface GateEventPayload {
+  gateId: string;
+  slotId: string;
+  operationType: string;
+  riskLevel: string;
+  status: string;
+}
+
+export interface CostUpdatedPayload {
+  slotId: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  costCents: number;
+  totalCostCents: number;
+}
+
+export interface OrchestrationUpdatePayload {
+  recordId: string;
+  eventType: string;
+  currentLayer?: number;
+  completedStories?: number;
+  totalStories?: number;
+  message?: string;
+}
+
 export interface OrchestrationRecordDb {
   id: string;
   cockpitSessionId: string;

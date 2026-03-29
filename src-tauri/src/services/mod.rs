@@ -5,3 +5,4 @@ pub mod loop_launcher;
 pub mod agent_lifecycle;
 pub mod orchestration_engine;
 pub mod mcp_service;
+pub mod event_bus;

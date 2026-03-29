@@ -174,3 +174,16 @@ export const mcpRecordDecision = (worktreePath: string, sessionId: string, decis
 
 export const mcpGenerateHandoff = (worktreePath: string, sessionId: string, maxTokens?: number) =>
   invoke<string>('mcp_generate_handoff', { worktreePath, sessionId, maxTokens });
+
+// Event Bus (PRD-17)
+export const emitAgentStatus = (slotId: string, status: string, progress?: number, task?: string, agentType?: string) =>
+  invoke<void>('emit_agent_status', { slotId, status, progress, task, agentType });
+
+export const emitLogEntry = (level: string, source: string, message: string, slotId?: string) =>
+  invoke<void>('emit_log_entry', { level, source, message, slotId });
+
+export const emitGateEvent = (gateId: string, slotId: string, operationType: string, riskLevel: string, status: string) =>
+  invoke<void>('emit_gate_event', { gateId, slotId, operationType, riskLevel, status });
+
+export const flushPtyBuffers = () =>
+  invoke<void>('flush_pty_buffers');
