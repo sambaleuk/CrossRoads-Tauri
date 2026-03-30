@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { invoke } from '@tauri-apps/api/core';
+import { PRDDetectedOverlay, detectPRDInResponse } from '../components/PRDDetectedOverlay';
+import { SlotAssignmentDialog } from '../components/SlotAssignmentDialog';
 
 type MessageRole = 'user' | 'assistant' | 'system' | 'error';
 type ChatMode = 'cli' | 'api';
@@ -44,6 +46,8 @@ export function ChatPanel() {
   const [mode, setMode] = useState<ChatMode>('cli');
   const [isLoading, setIsLoading] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [detectedPRD, setDetectedPRD] = useState<{ featureName: string; description: string; stories: Array<{ id: string; title: string; priority: string }>; rawJson: string } | null>(null);
+  const [showSlotAssignment, setShowSlotAssignment] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -90,6 +94,9 @@ export function ChatPanel() {
 
       if (response) {
         setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, content: response, isStreaming: false } : m));
+        // Detect PRD in response
+        const prd = detectPRDInResponse(response);
+        if (prd) setDetectedPRD(prd);
       } else {
         setMessages(prev => prev.map(m => m.id === placeholderId
           ? { ...m, role: 'error' as MessageRole, content: 'Claude CLI not found. Install `claude` (Claude Code) or switch to API mode.\n\nInstall: npm install -g @anthropic-ai/claude-code', isStreaming: false }
@@ -166,6 +173,9 @@ export function ChatPanel() {
       }
 
       setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, isStreaming: false, content: acc || '(empty)' } : m));
+      // Detect PRD in response
+      const prd = detectPRDInResponse(acc);
+      if (prd) setDetectedPRD(prd);
     } catch (err: any) {
       if (err.name === 'AbortError') {
         setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, content: m.content + '\n*(cancelled)*', isStreaming: false } : m));
@@ -213,6 +223,37 @@ export function ChatPanel() {
         ))}
         <div ref={bottomRef} />
       </div>
+
+      {/* PRD Detected Overlay */}
+      {detectedPRD && (
+        <PRDDetectedOverlay
+          prd={detectedPRD}
+          onLaunchSingle={(_agentType, _branch) => {
+            setDetectedPRD(null);
+          }}
+          onConfigureMultiAgent={() => setShowSlotAssignment(true)}
+          onViewPRD={() => {
+            setMessages(prev => [...prev, {
+              id: Date.now().toString(), role: 'system',
+              content: '```json\n' + detectedPRD.rawJson + '\n```',
+              timestamp: new Date().toISOString(),
+            }]);
+          }}
+          onDismiss={() => setDetectedPRD(null)}
+        />
+      )}
+
+      {/* Slot Assignment Dialog (full-screen) */}
+      {showSlotAssignment && detectedPRD && (
+        <SlotAssignmentDialog
+          featureName={detectedPRD.featureName}
+          stories={detectedPRD.stories}
+          prdJson={detectedPRD.rawJson}
+          projectPath={projectPath ?? ''}
+          onClose={() => setShowSlotAssignment(false)}
+          onLaunched={() => { setShowSlotAssignment(false); setDetectedPRD(null); }}
+        />
+      )}
 
       <div className="px-3 py-1.5 flex flex-wrap gap-1 border-t border-gray-800/50">
         {suggestions.map((s) => (
