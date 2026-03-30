@@ -97,35 +97,46 @@ export function PRDDetectedOverlay({ prd, onLaunchSingle, onConfigureMultiAgent,
 
 /**
  * Try to extract a PRD from Claude's response text.
- * Looks for JSON code blocks with feature_name and user_stories.
+ * Looks for JSON with feature_name and user_stories in code blocks or raw text.
  */
 export function detectPRDInResponse(text: string): DetectedPRD | null {
-  // Look for JSON in code blocks
-  const codeBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/g;
+  // Strategy 1: Find JSON in code blocks (handles nested braces)
+  const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)```/g;
   let match;
 
   while ((match = codeBlockRegex.exec(text)) !== null) {
-    try {
-      const parsed = JSON.parse(match[1]);
-      if (parsed.feature_name && parsed.user_stories && Array.isArray(parsed.user_stories)) {
-        return {
-          featureName: parsed.feature_name,
-          description: parsed.description ?? '',
-          stories: parsed.user_stories.map((s: any) => ({
-            id: s.id ?? '',
-            title: s.title ?? '',
-            priority: s.priority ?? 'medium',
-          })),
-          rawJson: match[1],
-        };
-      }
-    } catch { /* not valid JSON */ }
+    const candidate = match[1].trim();
+    const parsed = tryParsePRD(candidate);
+    if (parsed) return parsed;
   }
 
-  // Also try direct JSON (no code block)
+  // Strategy 2: Find the largest JSON-like block in the text
+  const jsonStart = text.indexOf('{"feature_name"');
+  if (jsonStart >= 0) {
+    // Find matching closing brace by counting depth
+    let depth = 0;
+    let end = jsonStart;
+    for (let i = jsonStart; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      if (text[i] === '}') depth--;
+      if (depth === 0) { end = i + 1; break; }
+    }
+    const candidate = text.slice(jsonStart, end);
+    const parsed = tryParsePRD(candidate);
+    if (parsed) return parsed;
+  }
+
+  // Strategy 3: Try the entire text as JSON
+  const parsed = tryParsePRD(text);
+  if (parsed) return parsed;
+
+  return null;
+}
+
+function tryParsePRD(text: string): DetectedPRD | null {
   try {
     const parsed = JSON.parse(text);
-    if (parsed.feature_name && parsed.user_stories) {
+    if (parsed.feature_name && parsed.user_stories && Array.isArray(parsed.user_stories)) {
       return {
         featureName: parsed.feature_name,
         description: parsed.description ?? '',
@@ -137,7 +148,6 @@ export function detectPRDInResponse(text: string): DetectedPRD | null {
         rawJson: text,
       };
     }
-  } catch { /* not JSON */ }
-
+  } catch { /* not valid JSON */ }
   return null;
 }

@@ -24,7 +24,31 @@ You have deep knowledge of:
 - Cost management (budget caps, model routing, cost projections)
 - Code safety (dangerous operation detection, approval gates)
 
-When asked to create a PRD, output a JSON code block with feature_name, user_stories, dependencies.
+CRITICAL: When the user asks you to create a PRD, plan a feature, or build something, you MUST include a JSON code block in your response with this EXACT format:
+
+\`\`\`json
+{
+  "feature_name": "Feature Name Here",
+  "description": "One-line description",
+  "status": "pending",
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "Story title",
+      "description": "What to implement",
+      "status": "pending",
+      "tests": ["test description"],
+      "dependencies": [],
+      "priority": "high"
+    }
+  ]
+}
+\`\`\`
+
+This JSON block triggers XRoads' orchestration pipeline. Without it, the user cannot launch agents.
+Priority values: "high", "medium", "low". Dependencies reference other story IDs.
+Always include the JSON block PLUS a summary after it.
+
 Be concise and direct. Lead with the answer.`;
 
 const CLI_SUGGESTIONS = ['Create a PRD for...', 'Plan orchestration', 'What agents should I use?', 'Explain my codebase'];
