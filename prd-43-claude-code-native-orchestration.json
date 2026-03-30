@@ -1,0 +1,137 @@
+{
+  "$schema": "modragor-prd-v1",
+  "feature_name": "Claude Code Native Orchestration (Tauri)",
+  "description": "Replace manual PTY spawning with native Claude Code features: subagent definitions with worktree isolation, headless mode with stream-json, hooks for safety/quality, auto permission mode, /loop for monitoring, persistent memory per slot. The Tauri backend (Rust) drives Claude Code sessions programmatically instead of wrapping PTY processes.",
+  "branch": "feat/43-claude-native",
+  "created_at": "2026-03-30",
+  "status": "pending",
+  "goals": [
+    "Replace PTY spawn in agent_lifecycle.rs with Claude Code headless mode",
+    "Generate .claude/agents/ files dynamically from chairman assignments",
+    "Parse stream-json output for structured events (text, tool calls, session_id)",
+    "Implement hooks via .claude/settings.local.json generation",
+    "Use auto permission mode — remove manual SafeExecutor SIGSTOP",
+    "Store session_id per slot for resume after crash",
+    "Route structured output to event_bus for real-time UI updates"
+  ],
+  "non_goals": [
+    "No Agent Teams — keep our own multi-slot dispatch system",
+    "No full Agent SDK rewrite — use CLI headless mode first",
+    "No cloud scheduled tasks for v1"
+  ],
+  "user_stories": [
+    {
+      "id": "US-001",
+      "title": "Subagent definition generator (Rust)",
+      "description": "New function in cockpit_brain.rs: generate_agent_definitions(project_path, cop, assignments) -> Vec<AgentDefinition>. For each chairman assignment, generates a .claude/agents/slot-{N}-{skill}.md file with YAML frontmatter: name, description (taskDescription), tools (scoped by role), model (from cost routing — opus for complex, sonnet for moderate, haiku for simple), permissionMode (auto), isolation (worktree), memory (project), background (true). Body contains: mission brief, assigned stories, coordination rules, commit conventions. Files written to {project_path}/.claude/agents/. Expose as Tauri command: generate_agent_definitions.",
+      "status": "pending",
+      "tests": [
+        "agent .md files generated in .claude/agents/",
+        "frontmatter contains correct YAML",
+        "tools scoped by role",
+        "model selected from cost routing"
+      ],
+      "entity_touches": [],
+      "priority": "high"
+    },
+    {
+      "id": "US-002",
+      "title": "Headless Claude Code launcher (Rust)",
+      "description": "Replace agent_lifecycle.rs spawn_agent() PTY path with headless Claude Code. New function: launch_headless_agent(slot_id, agent_name, prompt, worktree_path) -> Result<HeadlessSession>. Executes: `claude -p <prompt> --agent <agent_name> --output-format stream-json` with working_directory set to worktree. Spawn via std::process::Command with stdout piped. Parse stream-json line by line: {type: 'assistant', content: [...]}, {type: 'tool_use', name: '...', input: {...}}, {type: 'result', session_id: '...'}. Route parsed events to event_bus: agent_output for text, tool_call for tool use, session_complete with session_id. Store session_id in AgentSlot DB record (new field or use currentTask). Resume: `claude -p 'Continue' --resume <session_id> --output-format stream-json`.",
+      "status": "pending",
+      "tests": [
+        "claude launched in headless mode",
+        "stream-json parsed line by line",
+        "text routed to event_bus",
+        "session_id captured and stored",
+        "resume works with --resume flag"
+      ],
+      "entity_touches": ["AgentSlot"],
+      "priority": "high"
+    },
+    {
+      "id": "US-003",
+      "title": "Hooks configuration generator (Rust)",
+      "description": "New function in cockpit_brain.rs: generate_hooks_config(project_path, cop) -> Result<()>. Writes .claude/settings.local.json with: 1) PreToolUse hook (command type): runs a script that checks for our 13 dangerous patterns (rm -rf, DROP TABLE, force push, etc). Exit 2 to block, exit 0 to allow. Script generated at .claude/hooks/safe-executor.sh. 2) PostToolUse hook on Edit|Write: trigger test runner if exists (cargo test / npm test / pytest). 3) Stop hook (prompt type): 'Have all assigned stories been implemented with passing tests? If not, list what remains.' Returns {decision: 'block', reason: '...'} to keep agent working. 4) SubagentStop hook: POST to localhost webhook that cockpit listens on for merge evaluation. Settings file uses .local.json to avoid git conflicts.",
+      "status": "pending",
+      "tests": [
+        "settings.local.json generated",
+        "safe-executor.sh blocks rm -rf",
+        "Stop hook prevents premature exit",
+        "PostToolUse triggers tests"
+      ],
+      "entity_touches": [],
+      "priority": "high"
+    },
+    {
+      "id": "US-004",
+      "title": "CLAUDE.md and rules generation (Rust)",
+      "description": "New function: generate_project_context(project_path, cop, prd) -> Result<()>. Generates: 1) .claude/CLAUDE.md with: project name, tech stack (auto-detected), orchestration rules (commit prefix [slot-N], branch isolation, no cross-worktree changes), @prd.json import for PRD context, coding conventions. 2) .claude/rules/backend.md with paths: ['src/api/**', 'src/models/**', 'src/services/**'] — backend-specific instructions. 3) .claude/rules/frontend.md with paths: ['src/components/**', 'src/views/**'] — UI-specific instructions. 4) .claude/rules/testing.md with paths: ['tests/**', 'spec/**'] — test-specific instructions. Preserves existing CLAUDE.md if present (appends orchestration section).",
+      "status": "pending",
+      "tests": [
+        "CLAUDE.md generated with project context",
+        "rules files have correct path scoping",
+        "existing CLAUDE.md preserved",
+        "PRD imported via @ syntax"
+      ],
+      "entity_touches": [],
+      "priority": "high"
+    },
+    {
+      "id": "US-005",
+      "title": "Stream-json event parser and router",
+      "description": "New module: stream_parser.rs. Parses Claude Code stream-json format (one JSON per line): {type: 'assistant', message: {content: [{type: 'text', text: '...'}]}}, {type: 'tool_use', id: '...', name: 'Edit', input: {file_path: '...'}}, {type: 'tool_result', tool_use_id: '...', content: '...'}, {type: 'message_stop', message: {session_id: '...'}}, {type: 'error', error: {message: '...'}}. Maps to XRoads events: TextChunk(slot_id, text) → event_bus::emit_agent_output, ToolCall(slot_id, tool, input) → event_bus::emit_log (shows what agent is doing), SessionComplete(slot_id, session_id) → store session_id + update slot status, Error(slot_id, message) → event_bus::emit_log + slot error status. Frontend receives these via existing Tauri event subscriptions.",
+      "status": "pending",
+      "tests": [
+        "text chunks parsed and emitted",
+        "tool calls logged with tool name",
+        "session_id extracted on completion",
+        "errors handled gracefully"
+      ],
+      "entity_touches": [],
+      "priority": "high"
+    },
+    {
+      "id": "US-006",
+      "title": "Persistent memory bridge",
+      "description": "Each subagent has memory: project. Claude Code auto-maintains .claude/agents/slot-{N}/MEMORY.md. Bridge to XRoads: 1) On session start, inject initial memories from our LearningRecord + PerformanceProfile into the subagent's MEMORY.md: 'This agent excels at backend_rust (94% success rate)', 'Struggled with TypeScript generics in previous session'. 2) After session ends, read the subagent's MEMORY.md and sync learnings back to our LearningRecord DB. 3) Intelligence panel reads MEMORY.md files directly for display. This creates a bidirectional bridge: our ML data → agent memory → agent learns → new data → our ML improves.",
+      "status": "pending",
+      "tests": [
+        "initial memories injected from DB",
+        "MEMORY.md read after session",
+        "learnings synced back to DB",
+        "Intelligence panel shows agent memories"
+      ],
+      "entity_touches": ["LearningRecord"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-007",
+      "title": "Session resume via session_id",
+      "description": "AgentSlot gets new DB field: claude_session_id (String?, migration v18). On headless launch, stream-json output contains session_id on message_stop event. Store it. On app restart: detect non-closed slots with claude_session_id. Launch: `claude -p 'Continue where you left off. Check progress.txt and resume.' --resume <session_id> --output-format stream-json`. If session expired (error on resume), fall back to fresh launch with previous progress from AGENT.md + progress.txt. UI: recovery dialog shows 'Resume session?' with slot details.",
+      "status": "pending",
+      "tests": [
+        "session_id stored in DB",
+        "resume command works",
+        "expired session falls back gracefully",
+        "recovery dialog shows resume option"
+      ],
+      "entity_touches": ["AgentSlot"],
+      "priority": "medium"
+    },
+    {
+      "id": "US-008",
+      "title": "Frontend: structured output display",
+      "description": "Update SlotTerminal.tsx and DashboardMetrics.tsx to handle structured events from stream-json (vs raw PTY text). New event types on event_bus: 'agent-text' (text output), 'agent-tool-call' (tool name + file path), 'agent-tool-result' (success/failure), 'agent-thinking' (reasoning). Terminal slot view shows: text output normally, tool calls as colored badges ([Edit] src/api/auth.rs), thinking as dimmed italic. DashboardMetrics shows: active tool calls count, files modified count (from Edit events), tests run count (from Bash events containing 'test'). CockpitPanel slots tab shows: last tool call per slot, current file being edited.",
+      "status": "pending",
+      "tests": [
+        "text renders in terminal",
+        "tool calls show as badges",
+        "metrics update from structured events",
+        "cockpit shows per-slot activity"
+      ],
+      "entity_touches": [],
+      "priority": "medium"
+    }
+  ]
+}
