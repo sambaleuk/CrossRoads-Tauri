@@ -4,6 +4,7 @@ import { SessionCostSummary } from './CostBadge';
 import { SettingsPanel } from '../views/SettingsPanel';
 import { SkillsBrowser } from '../views/SkillsBrowser';
 import * as api from '../services/api';
+import { open } from '@tauri-apps/plugin-dialog';
 
 type OrchestratorStatus = 'ready' | 'running' | 'merging' | 'paused' | 'error';
 
@@ -31,17 +32,27 @@ export function Toolbar() {
   const totalSlots = slots.length;
 
   const openProject = async () => {
-    const path = prompt('Enter project path:', projectPath ?? '/Users');
-    if (!path) return;
-    setProjectPath(path);
-    // Check if git repo + create workspace
     try {
-      const isGit = await api.isGitRepo(path);
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select project directory',
+      });
+      if (!selected) return;
+      const path = typeof selected === 'string' ? selected : selected[0];
+      if (!path) return;
+
+      setProjectPath(path);
+
+      // Check if git repo + auto-create workspace
+      const isGit = await api.isGitRepo(path).catch(() => false);
       if (isGit) {
         const name = path.split('/').pop() ?? 'project';
         try { await api.createWorkspace(name, path); } catch { /* already exists */ }
       }
-    } catch {}
+    } catch (err) {
+      console.error('Open project failed:', err);
+    }
   };
 
   return (
