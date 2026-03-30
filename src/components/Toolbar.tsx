@@ -3,6 +3,7 @@ import { useAppStore } from '../stores/appStore';
 import { SessionCostSummary } from './CostBadge';
 import { SettingsPanel } from '../views/SettingsPanel';
 import { SkillsBrowser } from '../views/SkillsBrowser';
+import { StartSessionDialog } from './StartSessionDialog';
 import * as api from '../services/api';
 import { open } from '@tauri-apps/plugin-dialog';
 
@@ -20,6 +21,7 @@ export function Toolbar() {
   const { showCockpit, toggleCockpit, toggleInspector, toggleChat, session, sessionCost, slots, projectPath, setProjectPath } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
+  const [showStartSession, setShowStartSession] = useState(false);
 
   const status: OrchestratorStatus = !session || session.status === 'idle' ? 'ready'
     : session.status === 'paused' ? 'paused'
@@ -66,6 +68,12 @@ export function Toolbar() {
           <span>{projectPath ? projectPath.split('/').pop() : 'Open Project'}</span>
         </button>
 
+        {/* Start Session button */}
+        <button onClick={() => setShowStartSession(true)}
+          className="px-2 py-1 rounded text-[10px] font-mono text-neon-green bg-neon-green/10 border border-neon-green/30 hover:bg-neon-green/20 transition-colors">
+          Start Session
+        </button>
+
         <div className="w-px h-4 bg-gray-700" />
 
         {/* Status + agent count */}
@@ -102,6 +110,7 @@ export function Toolbar() {
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       {showSkills && <SkillsBrowser onClose={() => setShowSkills(false)} />}
+      {showStartSession && <StartSessionDialog onClose={() => setShowStartSession(false)} onStarted={() => setShowStartSession(false)} />}
     </>
   );
 }
