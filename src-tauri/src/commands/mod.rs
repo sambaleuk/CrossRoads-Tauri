@@ -431,7 +431,32 @@ pub fn flush_pty_buffers() {
 
 #[tauri::command]
 pub fn cockpit_activate(session_id: String) -> Result<cockpit_logic::ChairmanOutput, String> {
-    cockpit_logic::activate_session(&session_id)
+    let output = cockpit_logic::activate_session(&session_id)?;
+
+    // Auto-launch: create worktrees and spawn agents
+    match cockpit_logic::prepare_auto_launch(&session_id, &output) {
+        Ok(spawn_requests) => {
+            let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+            for req in spawn_requests {
+                match mgr.spawn_agent(req) {
+                    Ok(pid) => {
+                        event_bus::emit_log("info", "auto-launch",
+                            &format!("Agent spawned: {}", pid), None);
+                    }
+                    Err(e) => {
+                        event_bus::emit_log("warn", "auto-launch",
+                            &format!("Failed to spawn agent: {}", e), None);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            event_bus::emit_log("warn", "auto-launch",
+                &format!("Auto-launch preparation failed: {}", e), None);
+        }
+    }
+
+    Ok(output)
 }
 
 #[tauri::command]
@@ -614,14 +639,16 @@ pub async fn run_claude_cli(prompt: String, system_prompt: String, working_direc
         .ok_or_else(|| "Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code".to_string())?;
 
     let mut cmd = std::process::Command::new(&claude_path);
-    cmd.args(["--dangerously-skip-permissions", "--output-format", "text", "-p", &prompt]);
+    cmd.args([
+        "--dangerously-skip-permissions",
+        "--output-format", "text",
+        "--system-prompt", &system_prompt,
+        "-p", &prompt,
+    ]);
 
     if let Some(ref dir) = working_directory {
         cmd.current_dir(dir);
     }
-
-    // Set system prompt via env var (Claude Code respects CLAUDE_SYSTEM_PROMPT)
-    cmd.env("CLAUDE_SYSTEM_PROMPT", &system_prompt);
 
     let output = cmd.output().map_err(|e| format!("Failed to run claude: {}", e))?;
 

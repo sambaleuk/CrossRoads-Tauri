@@ -16,6 +16,8 @@ pub struct LoopConfig {
     pub slot_index: u32,
     pub skill_content: Option<String>,
     pub handoff_context: Option<String>,
+    pub chairman_brief: Option<String>,
+    pub task_description: Option<String>,
 }
 
 /// Result of AGENT.md generation
@@ -87,10 +89,17 @@ pub fn generate_agent_md(config: &LoopConfig) -> Result<AgentContext, String> {
         config.session_id, config.agent_type, config.slot_index, config.worktree_path
     ));
 
-    // Mission brief
-    sections.push(format!(
-        "## Mission\nImplement user stories from the PRD. Run unit tests after each story.\nUpdate story status to 'complete' in prd.json when done.\n"
-    ));
+    // Chairman brief (injected from cockpit deliberation)
+    if let Some(ref brief) = config.chairman_brief {
+        sections.push(format!("## Chairman Brief\n{}\n", brief));
+    }
+
+    // Task assignment
+    if let Some(ref task) = config.task_description {
+        sections.push(format!("## Your Assignment\n**Task**: {}\n\nFocus exclusively on this task. Do not modify files outside your scope.\n", task));
+    } else {
+        sections.push("## Mission\nImplement user stories from the PRD. Run unit tests after each story.\nUpdate story status to 'complete' in prd.json when done.\n".into());
+    }
 
     // PRD summary
     sections.push(format!("## PRD Summary\n{}\n", prd_summary));
@@ -109,6 +118,9 @@ pub fn generate_agent_md(config: &LoopConfig) -> Result<AgentContext, String> {
     if let Some(handoff) = &config.handoff_context {
         sections.push(format!("## Handoff Context\n{}\n", handoff));
     }
+
+    // Coordination rules (multi-agent safety)
+    sections.push("## Coordination Rules\n- You are working in an **isolated git worktree**. Other agents work in parallel on separate branches.\n- Do NOT modify files outside your assigned scope.\n- Do NOT merge or rebase — the orchestrator handles branch integration.\n- Write clean, atomic commits with descriptive messages.\n- If you encounter a conflict or dependency on another agent's work, write it to progress.txt and continue.\n".into());
 
     // Workflow guidance
     sections.push("## Workflow\n1. Read the assigned user story\n2. Implement the feature\n3. Write unit tests\n4. Run tests and fix failures\n5. Update prd.json story status to 'complete'\n6. Write learnings to progress.txt\n".into());
@@ -260,6 +272,8 @@ mod tests {
             slot_index: 0,
             skill_content: Some("## Test Skill\nDo testing.".into()),
             handoff_context: None,
+            chairman_brief: Some("## Chairman Brief\nTest brief content".into()),
+            task_description: Some("Implement auth core".into()),
         };
 
         let ctx = generate_agent_md(&config).unwrap();
@@ -319,6 +333,8 @@ mod tests {
             slot_index: 2,
             skill_content: None,
             handoff_context: None,
+            chairman_brief: None,
+            task_description: None,
         };
         let ctx = AgentContext {
             agent_md_path: PathBuf::from("/tmp/wt/AGENT.md"),

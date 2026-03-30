@@ -100,20 +100,34 @@ export function PRDDetectedOverlay({ prd, onLaunchSingle, onConfigureMultiAgent,
  * Looks for JSON with feature_name and user_stories in code blocks or raw text.
  */
 export function detectPRDInResponse(text: string): DetectedPRD | null {
-  // Strategy 1: Find JSON in code blocks (handles nested braces)
-  const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)```/g;
-  let match;
+  // Strategy 1: Find JSON in code blocks using brace-counting (handles nested JSON reliably)
+  const codeBlockStart = /```(?:json)?\s*\n?\s*\{/g;
+  let startMatch;
 
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    const candidate = match[1].trim();
+  while ((startMatch = codeBlockStart.exec(text)) !== null) {
+    // Find the opening brace position within the match
+    const bracePos = text.indexOf('{', startMatch.index);
+    if (bracePos < 0) continue;
+
+    // Count braces to find the matching close
+    let depth = 0;
+    let end = bracePos;
+    for (let i = bracePos; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      if (text[i] === '}') depth--;
+      if (depth === 0) { end = i + 1; break; }
+    }
+    const candidate = text.slice(bracePos, end);
     const parsed = tryParsePRD(candidate);
     if (parsed) return parsed;
   }
 
-  // Strategy 2: Find the largest JSON-like block in the text
-  const jsonStart = text.indexOf('{"feature_name"');
-  if (jsonStart >= 0) {
-    // Find matching closing brace by counting depth
+  // Strategy 2: Find any JSON block with feature_name (handles no code block wrapper)
+  const featureNamePattern = /\{\s*"feature_name"/g;
+  let fnMatch;
+
+  while ((fnMatch = featureNamePattern.exec(text)) !== null) {
+    const jsonStart = fnMatch.index;
     let depth = 0;
     let end = jsonStart;
     for (let i = jsonStart; i < text.length; i++) {

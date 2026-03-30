@@ -101,6 +101,16 @@ pub fn list_worktrees(repo_path: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
+pub fn prune_worktrees(repo_path: &str) -> Result<(), String> {
+    run_git(&["worktree", "prune"], repo_path)?;
+    Ok(())
+}
+
+pub fn delete_branch(repo_path: &str, branch: &str) -> Result<(), String> {
+    run_git(&["branch", "-D", branch], repo_path)?;
+    Ok(())
+}
+
 // Merge operations
 pub fn merge(repo_path: &str, branch: &str, no_commit: bool) -> Result<(), String> {
     let mut args = vec!["merge", branch, "--no-ff"];

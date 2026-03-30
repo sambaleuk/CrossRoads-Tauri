@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use crate::db::{session_repo, slot_repo, gate_repo, skill_repo, config_snapshot_repo};
 use crate::services::{git_service, event_bus, org_chart};
+use crate::services::agent_lifecycle::SpawnRequest;
 
 // ── US-001: Cockpit Lifecycle State Machine ──
 
@@ -444,6 +445,76 @@ pub fn close_session(session_id: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+// ── US-005: Auto-launch Agents ──
+
+/// Prepare spawn requests for all assigned slots.
+/// Creates worktrees, generates context — ready for lifecycle manager to spawn.
+pub fn prepare_auto_launch(session_id: &str, output: &ChairmanOutput) -> Result<Vec<SpawnRequest>, String> {
+    let session = session_repo::fetch_session(session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Session {} not found", session_id))?;
+
+    let project_path = &session.project_path;
+    let slots = slot_repo::fetch_slots_for_session(session_id)
+        .map_err(|e| e.to_string())?;
+
+    // Prune stale worktrees first
+    let _ = git_service::prune_worktrees(project_path);
+
+    // Find or create prd.json path
+    let prd_path = std::path::Path::new(project_path).join("prd.json");
+    let prd_path_str = prd_path.to_string_lossy().to_string();
+
+    let mut spawn_requests = Vec::new();
+
+    for (i, slot) in slots.iter().enumerate() {
+        // Match slot to assignment by index
+        let assignment = output.assignments.iter()
+            .find(|a| a.slot_index == slot.slot_index as u32)
+            .or_else(|| output.assignments.get(i));
+
+        let branch_name = slot.branch_name.clone()
+            .or_else(|| assignment.map(|a| a.branch_name.clone()))
+            .unwrap_or_else(|| format!("xroads/slot-{}", slot.slot_index));
+
+        let task_description = slot.current_task.clone()
+            .or_else(|| assignment.map(|a| a.task_description.clone()));
+
+        // Clean up old branch if exists (ignore errors — branch may not exist)
+        let _ = git_service::delete_branch(project_path, &branch_name);
+
+        // Create worktree path
+        let worktree_dir = format!("{}/.worktrees/slot-{}", project_path, slot.slot_index);
+
+        // Remove old worktree if it exists
+        if std::path::Path::new(&worktree_dir).exists() {
+            let _ = git_service::delete_worktree(project_path, &worktree_dir);
+        }
+
+        // Create fresh worktree
+        git_service::create_worktree(project_path, &worktree_dir, &branch_name)?;
+
+        event_bus::emit_log("info", "auto-launch",
+            &format!("Worktree created for slot {}: {}", slot.slot_index, branch_name), None);
+
+        spawn_requests.push(SpawnRequest {
+            slot_id: slot.id.clone(),
+            session_id: session_id.to_string(),
+            slot_index: slot.slot_index as u32,
+            agent_type: slot.agent_type.clone(),
+            worktree_path: worktree_dir,
+            prd_path: prd_path_str.clone(),
+            branch_name,
+            max_iterations: Some(10),
+            sleep_seconds: Some(10),
+            skill_content: None,
+            handoff_context: Some(output.brief.clone()),
+        });
+    }
+
+    Ok(spawn_requests)
 }
 
 // ── Helpers ──

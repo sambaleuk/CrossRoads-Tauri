@@ -132,6 +132,8 @@ impl AgentLifecycleManager {
             slot_index: req.slot_index,
             skill_content: req.skill_content.clone(),
             handoff_context: req.handoff_context.clone(),
+            chairman_brief: None,
+            task_description: None,
         };
         let ctx = loop_launcher::generate_agent_md(&config)?;
 
