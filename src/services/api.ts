@@ -352,3 +352,25 @@ export const createDeliverablesStructure = (projectPath: string) =>
   invoke<void>('create_deliverables_structure', { projectPath });
 export const getAdaptationActions = (sessionId: string) =>
   invoke<AdaptationAction[]>('get_adaptation_actions', { sessionId });
+
+// PRD-43: Claude Code Native Orchestration
+export const generateAgentDefinitions = (projectPath: string, assignments: any[]) =>
+  invoke<any[]>('generate_agent_definitions', { projectPath, assignments });
+export const launchHeadless = (slotId: string, agentName: string, prompt: string, worktreePath: string, resumeSessionId?: string) =>
+  invoke<any>('launch_headless', { slotId, agentName, prompt, worktreePath, resumeSessionId });
+export const abortHeadless = (slotId: string) =>
+  invoke<void>('abort_headless', { slotId });
+export const listHeadlessSessions = () =>
+  invoke<any[]>('list_headless_sessions');
+export const generateHooksConfig = (projectPath: string) =>
+  invoke<string>('generate_hooks_config', { projectPath });
+export const generateClaudeMd = (projectPath: string) =>
+  invoke<string>('generate_claude_md', { projectPath });
+export const generateRules = (projectPath: string) =>
+  invoke<string[]>('generate_rules', { projectPath });
+export const generateAllClaudeConfig = (projectPath: string) =>
+  invoke<{ hooksPath: string; claudeMdPath: string; rulesCreated: string[] }>('generate_all_claude_config', { projectPath });
+export const injectAgentMemories = (worktreePath: string, agentName: string, agentType: string, sessionId: string) =>
+  invoke<string>('inject_agent_memories', { worktreePath, agentName, agentType, sessionId });
+export const syncAgentMemories = (worktreePath: string, agentName: string, agentType: string, sessionId: string) =>
+  invoke<number>('sync_agent_memories', { worktreePath, agentName, agentType, sessionId });

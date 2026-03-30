@@ -11,6 +11,9 @@ use crate::services::skill_system;
 use crate::services::session_persistence;
 use crate::services::{org_chart, budget_engine, heartbeat_engine, learning_engine, conflict_prevention};
 use crate::services::cockpit_brain;
+use crate::services::headless_launcher;
+use crate::services::claude_config_generator;
+use crate::services::memory_bridge;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -433,19 +436,75 @@ pub fn flush_pty_buffers() {
 pub fn cockpit_activate(session_id: String) -> Result<cockpit_logic::ChairmanOutput, String> {
     let output = cockpit_logic::activate_session(&session_id)?;
 
-    // Auto-launch: create worktrees and spawn agents
+    // Get session for project path
+    let session = crate::db::session_repo::fetch_session(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Session not found after activation".to_string())?;
+
+    // Generate Claude Code configuration (.claude/settings.local.json, CLAUDE.md, rules)
+    if let Ok(cop) = cockpit_brain::generate_cop(&session.project_path, "{}") {
+        match claude_config_generator::generate_all_config(&session.project_path, &cop) {
+            Ok(result) => {
+                event_bus::emit_log("info", "auto-launch",
+                    &format!("Claude config generated: {} rules", result.rules_created.len()), None);
+            }
+            Err(e) => {
+                event_bus::emit_log("warn", "auto-launch",
+                    &format!("Config generation failed: {}", e), None);
+            }
+        }
+
+        // Generate subagent definitions
+        match cockpit_brain::generate_agent_definitions(&session.project_path, &cop, &output.assignments) {
+            Ok(defs) => {
+                event_bus::emit_log("info", "auto-launch",
+                    &format!("{} agent definitions generated", defs.len()), None);
+            }
+            Err(e) => {
+                event_bus::emit_log("warn", "auto-launch",
+                    &format!("Agent definition generation failed: {}", e), None);
+            }
+        }
+    }
+
+    // Auto-launch: create worktrees and spawn agents via headless Claude Code
     match cockpit_logic::prepare_auto_launch(&session_id, &output) {
         Ok(spawn_requests) => {
-            let mgr = LIFECYCLE_MANAGER.lock().unwrap();
-            for req in spawn_requests {
-                match mgr.spawn_agent(req) {
-                    Ok(pid) => {
+            for req in &spawn_requests {
+                let agent_name = format!("slot-{}-{}", req.slot_index,
+                    output.assignments.iter()
+                        .find(|a| a.slot_index == req.slot_index)
+                        .map(|a| a.skill_name.as_str())
+                        .unwrap_or("general"));
+
+                let prompt = format!(
+                    "You are agent {} working on: {}. Read AGENT.md for full context, then implement your assigned task.",
+                    agent_name,
+                    req.handoff_context.as_deref().unwrap_or("your assigned stories")
+                );
+
+                match headless_launcher::launch_headless_agent(
+                    &req.slot_id, &agent_name, &prompt, &req.worktree_path, None,
+                ) {
+                    Ok(session) => {
                         event_bus::emit_log("info", "auto-launch",
-                            &format!("Agent spawned: {}", pid), None);
+                            &format!("Headless agent {} spawned (pid: {})", agent_name, session.process_id), None);
                     }
                     Err(e) => {
+                        // Fallback to legacy PTY spawn
                         event_bus::emit_log("warn", "auto-launch",
-                            &format!("Failed to spawn agent: {}", e), None);
+                            &format!("Headless failed for {}: {}, trying PTY fallback", agent_name, e), None);
+                        let mgr = LIFECYCLE_MANAGER.lock().unwrap();
+                        match mgr.spawn_agent(req.clone()) {
+                            Ok(pid) => {
+                                event_bus::emit_log("info", "auto-launch",
+                                    &format!("PTY fallback spawned: {}", pid), None);
+                            }
+                            Err(e2) => {
+                                event_bus::emit_log("error", "auto-launch",
+                                    &format!("All spawn methods failed for {}: {}", agent_name, e2), None);
+                            }
+                        }
                     }
                 }
             }
@@ -490,6 +549,81 @@ pub fn cockpit_deliberate(project_path: String) -> cockpit_logic::ChairmanOutput
         previous_session: None,
     });
     cockpit_logic::chairman_deliberate(&input)
+}
+
+#[tauri::command]
+pub fn generate_agent_definitions(
+    project_path: String,
+    assignments: Vec<cockpit_logic::SlotAssignment>,
+) -> Result<Vec<cockpit_brain::AgentDefinition>, String> {
+    let cop = cockpit_brain::generate_cop(&project_path, "{}")
+        .map_err(|e| format!("Failed to generate COP: {}", e))?;
+    cockpit_brain::generate_agent_definitions(&project_path, &cop, &assignments)
+}
+
+// PRD-43: Headless Claude Code launcher
+
+#[tauri::command]
+pub fn launch_headless(
+    slot_id: String,
+    agent_name: String,
+    prompt: String,
+    worktree_path: String,
+    resume_session_id: Option<String>,
+) -> Result<headless_launcher::HeadlessSession, String> {
+    headless_launcher::launch_headless_agent(
+        &slot_id, &agent_name, &prompt, &worktree_path,
+        resume_session_id.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn abort_headless(slot_id: String) -> Result<(), String> {
+    headless_launcher::abort_headless(&slot_id)
+}
+
+#[tauri::command]
+pub fn list_headless_sessions() -> Vec<headless_launcher::HeadlessSession> {
+    headless_launcher::list_sessions()
+}
+
+// PRD-43: Claude Code configuration generator
+
+#[tauri::command]
+pub fn generate_hooks_config(project_path: String) -> Result<String, String> {
+    claude_config_generator::generate_hooks_config(&project_path)
+}
+
+#[tauri::command]
+pub fn generate_claude_md(project_path: String) -> Result<String, String> {
+    let cop = cockpit_brain::generate_cop(&project_path, "{}")
+        .map_err(|e| format!("Failed to generate COP: {}", e))?;
+    claude_config_generator::generate_claude_md(&project_path, &cop)
+}
+
+#[tauri::command]
+pub fn generate_rules(project_path: String) -> Result<Vec<String>, String> {
+    let cop = cockpit_brain::generate_cop(&project_path, "{}")
+        .map_err(|e| format!("Failed to generate COP: {}", e))?;
+    claude_config_generator::generate_rules(&project_path, &cop)
+}
+
+#[tauri::command]
+pub fn generate_all_claude_config(project_path: String) -> Result<claude_config_generator::ConfigGenerationResult, String> {
+    let cop = cockpit_brain::generate_cop(&project_path, "{}")
+        .map_err(|e| format!("Failed to generate COP: {}", e))?;
+    claude_config_generator::generate_all_config(&project_path, &cop)
+}
+
+// PRD-43: Memory bridge
+#[tauri::command]
+pub fn inject_agent_memories(worktree_path: String, agent_name: String, agent_type: String, session_id: String) -> Result<String, String> {
+    memory_bridge::inject_memories(&worktree_path, &agent_name, &agent_type, &session_id)
+}
+
+#[tauri::command]
+pub fn sync_agent_memories(worktree_path: String, agent_name: String, agent_type: String, session_id: String) -> Result<u32, String> {
+    memory_bridge::sync_memories_back(&worktree_path, &agent_name, &agent_type, &session_id)
 }
 
 // SafeExecutor commands (PRD-19)

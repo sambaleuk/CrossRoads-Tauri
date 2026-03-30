@@ -17,3 +17,7 @@ pub mod learning_engine;
 pub mod ml_trainer;
 pub mod conflict_prevention;
 pub mod cockpit_brain;
+pub mod stream_parser;
+pub mod headless_launcher;
+pub mod claude_config_generator;
+pub mod memory_bridge;

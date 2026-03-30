@@ -12,6 +12,7 @@ pub struct AgentSlot {
     pub branch_name: Option<String>,
     pub skill_id: Option<String>,
     pub current_task: Option<String>,
+    pub claude_session_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

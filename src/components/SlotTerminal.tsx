@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import type { PtyOutputPayload } from '../models';
+import type { PtyOutputPayload, LogEntryPayload } from '../models';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -65,18 +65,44 @@ export function SlotTerminal({ slotId, isExpanded = false }: Props) {
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // US-002: Subscribe to PTY output events filtered by slotId
+    // Subscribe to PTY output events filtered by slotId
     let mounted = true;
+    const unlisteners: UnlistenFn[] = [];
+
     listen<PtyOutputPayload>('pty-output', (event) => {
       if (mounted && event.payload.slotId === slotId) {
         term.write(event.payload.text);
       }
     }).then((unlisten) => {
-      if (mounted) {
-        unlistenRef.current = unlisten;
-      } else {
-        unlisten();
+      if (mounted) unlisteners.push(unlisten); else unlisten();
+    });
+
+    // Subscribe to structured events from headless launcher (PRD-43)
+    listen<LogEntryPayload>('log-entry', (event) => {
+      if (!mounted) return;
+      const { source, message, slotId: eventSlotId } = event.payload;
+      if (eventSlotId !== slotId) return;
+
+      switch (source) {
+        case 'agent-text':
+          term.write(message);
+          break;
+        case 'agent-tool':
+          // Tool calls rendered as colored badges
+          term.write(`\r\n\x1b[36m${message}\x1b[0m\r\n`);
+          break;
+        case 'agent-tool-result':
+          term.write(`\x1b[90m${message.slice(0, 200)}\x1b[0m\r\n`);
+          break;
+        case 'agent-error':
+          term.write(`\r\n\x1b[31m[ERROR] ${message}\x1b[0m\r\n`);
+          break;
+        case 'agent-session':
+          term.write(`\r\n\x1b[32m${message}\x1b[0m\r\n`);
+          break;
       }
+    }).then((unlisten) => {
+      if (mounted) unlisteners.push(unlisten); else unlisten();
     });
 
     // US-003: Capture keyboard input and send to PTY
@@ -101,6 +127,7 @@ export function SlotTerminal({ slotId, isExpanded = false }: Props) {
     return () => {
       mounted = false;
       resizeObserver.disconnect();
+      unlisteners.forEach(fn => fn());
       if (unlistenRef.current) {
         unlistenRef.current();
       }

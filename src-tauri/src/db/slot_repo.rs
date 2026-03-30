@@ -14,7 +14,8 @@ pub fn create_slot(session_id: &str, slot_index: i32, agent_type: &str, skill_id
         Ok(AgentSlot {
             id, cockpit_session_id: session_id.to_string(), slot_index, status: "empty".to_string(),
             agent_type: agent_type.to_string(), worktree_path: None, branch_name: branch_name.map(String::from),
-            skill_id: skill_id.map(String::from), current_task: None, created_at: now.clone(), updated_at: now,
+            skill_id: skill_id.map(String::from), current_task: None, claude_session_id: None,
+            created_at: now.clone(), updated_at: now,
         })
     })
 }
@@ -33,17 +34,29 @@ pub fn update_slot(id: &str, status: &str, current_task: Option<&str>) -> Result
 pub fn fetch_slots_for_session(session_id: &str) -> Result<Vec<AgentSlot>> {
     with_db(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT id,cockpitSessionId,slotIndex,status,agentType,worktreePath,branchName,skillId,currentTask,createdAt,updatedAt FROM agent_slot WHERE cockpitSessionId=?1 ORDER BY slotIndex"
+            "SELECT id,cockpitSessionId,slotIndex,status,agentType,worktreePath,branchName,skillId,currentTask,claudeSessionId,createdAt,updatedAt FROM agent_slot WHERE cockpitSessionId=?1 ORDER BY slotIndex"
         )?;
         let rows = stmt.query_map(params![session_id], |row| {
             Ok(AgentSlot {
                 id: row.get(0)?, cockpit_session_id: row.get(1)?, slot_index: row.get(2)?,
                 status: row.get(3)?, agent_type: row.get(4)?, worktree_path: row.get(5)?,
                 branch_name: row.get(6)?, skill_id: row.get(7)?, current_task: row.get(8)?,
-                created_at: row.get(9)?, updated_at: row.get(10)?,
+                claude_session_id: row.get(9)?,
+                created_at: row.get(10)?, updated_at: row.get(11)?,
             })
         })?;
         rows.collect()
+    })
+}
+
+pub fn update_claude_session_id(id: &str, claude_session_id: &str) -> Result<()> {
+    with_db(|conn| {
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE agent_slot SET claudeSessionId=?1, updatedAt=?2 WHERE id=?3",
+            params![claude_session_id, now, id],
+        )?;
+        Ok(())
     })
 }
 

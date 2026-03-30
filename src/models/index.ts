@@ -29,6 +29,7 @@ export interface AgentSlot {
   branchName?: string;
   skillId?: string;
   currentTask?: string;
+  claudeSessionId?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -61,6 +61,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("v15_learning", V15_LEARNING),
         ("v16_agent_memory", V16_AGENT_MEMORY),
         ("v17_trust_score", V17_TRUST_SCORE),
+        ("v18_claude_session_id", V18_CLAUDE_SESSION_ID),
     ];
 
     for (name, sql) in migrations {
@@ -446,6 +447,10 @@ const V17_TRUST_SCORE: &str = "
     CREATE INDEX idx_trust_score_agent ON trust_score (agentType);
 ";
 
+const V18_CLAUDE_SESSION_ID: &str = "
+    ALTER TABLE agent_slot ADD COLUMN claudeSessionId TEXT;
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,7 +465,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 17);
+        assert_eq!(count, 18);
     }
 
     #[test]
@@ -515,7 +520,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 17);
+        assert_eq!(count, 18);
     }
 
     #[test]

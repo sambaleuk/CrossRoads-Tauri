@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::fs;
 
 use crate::db::{session_repo, slot_repo, cost_repo};
+use crate::services::cockpit_logic::SlotAssignment;
 
 // ── Cockpit Brain: Autonomous Orchestration Layer ──
 //
@@ -925,6 +927,121 @@ fn capitalize_first(s: &str) -> String {
     match chars.next() {
         None => String::new(),
         Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+// ── US-001: Subagent Definition Generator ──
+
+/// A Claude Code subagent definition with YAML frontmatter
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDefinition {
+    pub name: String,
+    pub file_name: String,
+    pub content: String,
+}
+
+/// Generate .claude/agents/ subagent definition files from chairman assignments.
+/// Each agent gets a .md file with YAML frontmatter configuring Claude Code behavior.
+pub fn generate_agent_definitions(
+    project_path: &str,
+    cop: &CockpitOrchestrationPlan,
+    assignments: &[SlotAssignment],
+) -> Result<Vec<AgentDefinition>, String> {
+    let agents_dir = Path::new(project_path).join(".claude").join("agents");
+    fs::create_dir_all(&agents_dir)
+        .map_err(|e| format!("Failed to create .claude/agents/: {}", e))?;
+
+    let mut definitions = Vec::new();
+
+    for assignment in assignments {
+        let agent_name = format!("slot-{}-{}", assignment.slot_index, assignment.skill_name);
+        let file_name = format!("{}.md", agent_name);
+
+        let model = select_model_for_role(&assignment.skill_name);
+        let tools = select_tools_for_role(&assignment.skill_name);
+
+        let content = format!(
+r#"---
+name: {name}
+description: "{description}"
+tools: [{tools}]
+model: {model}
+permissionMode: auto
+allowedTools: [{tools}]
+---
+
+# {name}
+
+## Mission
+{task_description}
+
+## Project Context
+- **Project**: {project_name}
+- **Type**: {project_type}
+- **Domain**: {domain}
+- **Branch**: `{branch_name}`
+
+## Coordination Rules
+- You are working in an **isolated git worktree** on branch `{branch_name}`.
+- Other agents work in parallel on separate branches.
+- Do NOT modify files outside your assigned scope.
+- Do NOT merge or rebase — the orchestrator handles branch integration.
+- Prefix commits with `[slot-{slot_index}]`.
+- Write clean, atomic commits with descriptive messages.
+
+## Workflow
+1. Read the PRD and your assigned stories
+2. Implement the feature in small, tested increments
+3. Run tests after each change (`cargo test` / `npm test`)
+4. Commit working code frequently
+5. Write learnings to progress.txt when done
+"#,
+            name = agent_name,
+            description = assignment.task_description.replace('"', "'"),
+            tools = tools,
+            model = model,
+            task_description = assignment.task_description,
+            project_name = cop.project_name,
+            project_type = cop.project_type,
+            domain = cop.domain,
+            branch_name = assignment.branch_name,
+            slot_index = assignment.slot_index,
+        );
+
+        // Write the file
+        let file_path = agents_dir.join(&file_name);
+        fs::write(&file_path, &content)
+            .map_err(|e| format!("Failed to write {}: {}", file_name, e))?;
+
+        definitions.push(AgentDefinition {
+            name: agent_name,
+            file_name,
+            content,
+        });
+    }
+
+    Ok(definitions)
+}
+
+/// Select Claude model based on role complexity (cost routing)
+fn select_model_for_role(skill_name: &str) -> &'static str {
+    match skill_name {
+        "backend" | "frontend" | "fullstack" => "claude-sonnet-4-20250514",
+        "testing" | "review" => "claude-haiku-4-5-20251001",
+        "architecture" | "security" => "claude-sonnet-4-20250514",
+        _ => "claude-sonnet-4-20250514",
+    }
+}
+
+/// Select allowed tools based on agent role
+fn select_tools_for_role(skill_name: &str) -> &'static str {
+    match skill_name {
+        "backend" => "Edit, Write, Read, Bash, Glob, Grep",
+        "frontend" => "Edit, Write, Read, Bash, Glob, Grep",
+        "testing" => "Read, Bash, Glob, Grep, Edit",
+        "review" => "Read, Glob, Grep",
+        _ => "Edit, Write, Read, Bash, Glob, Grep",
     }
 }
 

@@ -103,6 +103,17 @@ fn main() {
             commands::cockpit_close,
             commands::cockpit_read_context,
             commands::cockpit_deliberate,
+            commands::generate_agent_definitions,
+            // PRD-43: Headless Claude Code
+            commands::launch_headless,
+            commands::abort_headless,
+            commands::list_headless_sessions,
+            commands::generate_hooks_config,
+            commands::generate_claude_md,
+            commands::generate_rules,
+            commands::generate_all_claude_config,
+            commands::inject_agent_memories,
+            commands::sync_agent_memories,
             // PRD-19: SafeExecutor
             commands::detect_dangerous_ops,
             commands::safe_trigger_gate,
