@@ -3,23 +3,23 @@ import { useAppStore } from '../stores/appStore';
 import { SessionCostSummary } from './CostBadge';
 import { SettingsPanel } from '../views/SettingsPanel';
 import { SkillsBrowser } from '../views/SkillsBrowser';
+import * as api from '../services/api';
 
 type OrchestratorStatus = 'ready' | 'running' | 'merging' | 'paused' | 'error';
 
-const statusConfig: Record<OrchestratorStatus, { color: string; dot: string; label: string }> = {
-  ready: { color: 'emerald', dot: 'bg-emerald-400', label: 'READY' },
-  running: { color: 'neon-green', dot: 'bg-neon-green', label: 'RUNNING' },
-  merging: { color: 'neon-blue', dot: 'bg-neon-blue', label: 'MERGING' },
-  paused: { color: 'yellow', dot: 'bg-yellow-400', label: 'PAUSED' },
-  error: { color: 'red', dot: 'bg-red-400', label: 'ERROR' },
+const statusConfig: Record<OrchestratorStatus, { dot: string; label: string }> = {
+  ready: { dot: 'bg-emerald-400', label: 'READY' },
+  running: { dot: 'bg-neon-green animate-pulse', label: 'RUNNING' },
+  merging: { dot: 'bg-neon-blue', label: 'MERGING' },
+  paused: { dot: 'bg-yellow-400', label: 'PAUSED' },
+  error: { dot: 'bg-red-400', label: 'ERROR' },
 };
 
 export function Toolbar() {
-  const { showCockpit, toggleCockpit, toggleInspector, toggleChat, session, sessionCost, slots } = useAppStore();
+  const { showCockpit, toggleCockpit, toggleInspector, toggleChat, session, sessionCost, slots, projectPath, setProjectPath } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
 
-  // Derive status from session + slots
   const status: OrchestratorStatus = !session || session.status === 'idle' ? 'ready'
     : session.status === 'paused' ? 'paused'
     : slots.some((s) => s.status === 'error') ? 'error'
@@ -30,23 +30,44 @@ export function Toolbar() {
   const runningCount = slots.filter((s) => s.status === 'running').length;
   const totalSlots = slots.length;
 
+  const openProject = async () => {
+    const path = prompt('Enter project path:', projectPath ?? '/Users');
+    if (!path) return;
+    setProjectPath(path);
+    // Check if git repo + create workspace
+    try {
+      const isGit = await api.isGitRepo(path);
+      if (isGit) {
+        const name = path.split('/').pop() ?? 'project';
+        try { await api.createWorkspace(name, path); } catch { /* already exists */ }
+      }
+    } catch {}
+  };
+
   return (
     <>
-      <div className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-800 bg-gray-950/80">
-        {/* Left: Status + agent count */}
-        <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-700 bg-gray-900">
+        {/* Open Project button */}
+        <button onClick={openProject}
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono text-gray-300 hover:text-neon-green hover:bg-gray-800 transition-colors"
+          title="Open Project Folder">
+          <span className="text-xs">📂</span>
+          <span>{projectPath ? projectPath.split('/').pop() : 'Open Project'}</span>
+        </button>
+
+        <div className="w-px h-4 bg-gray-700" />
+
+        {/* Status + agent count */}
+        <div className="flex items-center gap-1.5">
           <span className={`w-2 h-2 rounded-full ${cfg.dot} shadow-[0_0_6px_currentColor]`} />
-          <span className="text-[11px] font-bold font-mono text-gray-300">{cfg.label}</span>
+          <span className="text-[10px] font-bold font-mono text-gray-300">{cfg.label}</span>
           {totalSlots > 0 && (
-            <span className="text-[9px] font-mono text-gray-500">
-              {runningCount}/{totalSlots} agents
-            </span>
+            <span className="text-[9px] font-mono text-gray-500">{runningCount}/{totalSlots}</span>
           )}
         </div>
 
-        {/* Progress bar for running state */}
         {status === 'running' && (
-          <div className="w-24 h-1 bg-gray-800 rounded-full overflow-hidden">
+          <div className="w-20 h-1 bg-gray-800 rounded-full overflow-hidden">
             <div className="h-full bg-neon-green/60 rounded-full animate-pulse" style={{ width: '60%' }} />
           </div>
         )}
@@ -58,8 +79,8 @@ export function Toolbar() {
 
         <div className="flex-1" />
 
-        {/* Right: Action buttons */}
-        <div className="flex items-center gap-1">
+        {/* Right: Panel toggles */}
+        <div className="flex items-center gap-0.5">
           <ToolbarButton label="Chat" shortcut="O" onClick={toggleChat} />
           <ToolbarButton label="Cockpit" shortcut="C" onClick={toggleCockpit} active={showCockpit} />
           <ToolbarButton label="Inspector" shortcut="I" onClick={toggleInspector} />
@@ -80,17 +101,17 @@ export function BottomBar() {
   const activeCount = slots.filter((s) => s.status !== 'empty').length;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-1 border-t border-gray-800 bg-gray-950/80 text-[9px] font-mono text-gray-500">
+    <div className="flex items-center gap-3 px-4 py-1 border-t border-gray-700 bg-gray-900 text-[9px] font-mono text-gray-500">
       <div className="flex items-center gap-1.5">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        <span className={`w-1.5 h-1.5 rounded-full ${projectPath ? 'bg-emerald-500' : 'bg-gray-600'}`} />
         <span>{repoName}</span>
       </div>
       <span className="text-gray-700">|</span>
       <span>{session?.status ?? 'idle'}</span>
       <span className="text-gray-700">|</span>
-      <span>{activeCount} slots active</span>
+      <span>{activeCount} slots</span>
       <div className="flex-1" />
-      <span className="text-gray-600">XRoads Tauri v0.1.0</span>
+      <span className="text-gray-600">XRoads v0.1.0</span>
     </div>
   );
 }
@@ -101,14 +122,12 @@ function ToolbarButton({ label, shortcut, onClick, active }: {
   return (
     <button
       onClick={onClick}
-      title={shortcut ? `Ctrl+Shift+${shortcut}` : undefined}
+      title={shortcut ? `Cmd+Shift+${shortcut}` : undefined}
       className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono transition-colors
-        ${active ? 'bg-neon-green/10 text-neon-green border border-neon-green/30' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'}`}
+        ${active ? 'bg-neon-green/15 text-neon-green border border-neon-green/30' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'}`}
     >
       <span>{label}</span>
-      {shortcut && (
-        <span className="text-[8px] text-gray-600 ml-0.5">^{shortcut}</span>
-      )}
+      {shortcut && <span className="text-[8px] text-gray-600">⌘⇧{shortcut}</span>}
     </button>
   );
 }
