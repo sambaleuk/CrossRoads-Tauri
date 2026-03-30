@@ -192,53 +192,138 @@ pub struct ChairmanOutput {
     pub assignments: Vec<SlotAssignment>,
 }
 
-/// Demo chairman: analyzes context and returns sensible slot assignments.
-/// In production, this would call the cockpit-council Python module.
+/// Context-aware chairman: analyzes real project data to produce relevant assignments.
 pub fn chairman_deliberate(input: &ChairmanInput) -> ChairmanOutput {
     let project_name = std::path::Path::new(&input.project_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".into());
 
-    // Build brief
-    let mut brief_parts = Vec::new();
-    brief_parts.push(format!("Project: {} (branch: {})", project_name, input.current_branch));
-    brief_parts.push(format!("{} branches, {} recent commits", input.branches.len(), input.recent_commits.len()));
-    if let Some(ref prd) = input.prd_summary {
-        brief_parts.push(format!("PRD: {}", prd));
-    }
-    if let Some(ref prev) = input.previous_session {
-        brief_parts.push(format!("Previous session: {} ({}, {} slots)", prev.session_id, prev.status, prev.slot_count));
-    }
+    // Detect domain from branches + commits
+    let all_text: String = input.branches.iter()
+        .chain(input.recent_commits.iter().map(|c| &c.message))
+        .cloned()
+        .collect::<Vec<String>>()
+        .join(" ")
+        .to_lowercase();
 
-    let brief = brief_parts.join("\n");
+    let domain = detect_domain(&all_text);
+    let branch_list = if input.branches.len() <= 5 {
+        input.branches.join(", ")
+    } else {
+        format!("{} (+{} more)", input.branches[..5].join(", "), input.branches.len() - 5)
+    };
+    let authors: Vec<String> = input.recent_commits.iter()
+        .map(|c| c.author.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter().take(3).collect();
 
-    // Demo assignments: 3 slots with common agent configs
-    let assignments = vec![
-        SlotAssignment {
-            slot_index: 0,
-            agent_type: "claude".into(),
-            skill_name: "backend".into(),
-            branch_name: format!("agent/slot-0-backend"),
-            task_description: "Backend implementation and API work".into(),
-        },
-        SlotAssignment {
-            slot_index: 1,
-            agent_type: "claude".into(),
-            skill_name: "frontend".into(),
-            branch_name: format!("agent/slot-1-frontend"),
-            task_description: "Frontend UI components and state management".into(),
-        },
-        SlotAssignment {
-            slot_index: 2,
-            agent_type: "claude".into(),
-            skill_name: "testing".into(),
-            branch_name: format!("agent/slot-2-testing"),
-            task_description: "Test writing and quality assurance".into(),
-        },
-    ];
+    // PRD context
+    let prd_section = match &input.prd_summary {
+        Some(prd) => format!("**PRD**: {}", prd),
+        None => "**PRD**: No active PRD detected. Agents will analyze codebase.".into(),
+    };
+
+    // Generate domain-aware assignments
+    let branch_prefix = format!("xroads/{}", project_name.to_lowercase().replace(' ', "-"));
+    let assignments = generate_domain_assignments(&domain, &branch_prefix);
+
+    // Build contextual brief
+    let slot_lines: Vec<String> = assignments.iter().enumerate().map(|(i, a)| {
+        format!("- **Slot {}** [{}]: {} → `{}`", i + 1, a.agent_type, a.task_description, a.branch_name)
+    }).collect();
+
+    let brief = format!(
+        "## Chairman Brief — {}\n\n\
+        **Project**: {}\n\
+        **Branches**: {}\n\
+        **Recent activity**: {} commits{}\n\
+        {}\n\
+        **Domain detected**: {}\n\n\
+        ### Slot Strategy\n\
+        {}\n\n\
+        ### Rationale\n\
+        Domain **{}** detected from branch names and commit history.\n\
+        {} agents assigned with isolated git worktrees — no merge conflicts during parallel work.\n\
+        Claude Code for primary implementation, Gemini for testing (cost-effective).",
+        project_name, project_name, branch_list,
+        input.recent_commits.len(),
+        if authors.is_empty() { String::new() } else { format!(" by {}", authors.join(", ")) },
+        prd_section, domain,
+        slot_lines.join("\n"),
+        domain, assignments.len()
+    );
 
     ChairmanOutput { brief, assignments }
+}
+
+fn detect_domain(text: &str) -> String {
+    let domains: &[(&str, &[&str])] = &[
+        ("authentication", &["auth", "login", "password", "session", "jwt", "oauth"]),
+        ("api-development", &["api", "endpoint", "rest", "graphql", "route", "middleware"]),
+        ("frontend", &["react", "vue", "component", "ui", "css", "tailwind"]),
+        ("backend", &["server", "database", "migration", "model", "service"]),
+        ("devops", &["deploy", "docker", "ci", "pipeline", "infrastructure"]),
+        ("observability", &["monitor", "trace", "log", "metric", "observability", "telemetry"]),
+        ("payments", &["payment", "stripe", "billing", "subscription"]),
+        ("data-pipeline", &["data", "etl", "pipeline", "analytics", "ml"]),
+    ];
+
+    let mut best = ("general-development", 0);
+    for (domain, keywords) in domains {
+        let score = keywords.iter().filter(|k| text.contains(**k)).count();
+        if score > best.1 { best = (domain, score); }
+    }
+    best.0.to_string()
+}
+
+fn generate_domain_assignments(domain: &str, branch_prefix: &str) -> Vec<SlotAssignment> {
+    match domain {
+        "authentication" => vec![
+            SlotAssignment { slot_index: 0, agent_type: "claude".into(), skill_name: "backend".into(),
+                branch_name: format!("{}-auth-core", branch_prefix),
+                task_description: "Auth core: JWT/session management, password hashing, middleware".into() },
+            SlotAssignment { slot_index: 1, agent_type: "claude".into(), skill_name: "frontend".into(),
+                branch_name: format!("{}-auth-ui", branch_prefix),
+                task_description: "Auth UI: login/register forms, protected routes, token handling".into() },
+            SlotAssignment { slot_index: 2, agent_type: "gemini".into(), skill_name: "testing".into(),
+                branch_name: format!("{}-auth-tests", branch_prefix),
+                task_description: "Auth tests: security edge cases, session expiry, brute force protection".into() },
+        ],
+        "api-development" => vec![
+            SlotAssignment { slot_index: 0, agent_type: "claude".into(), skill_name: "backend".into(),
+                branch_name: format!("{}-api-endpoints", branch_prefix),
+                task_description: "API endpoints: CRUD routes, validation, error handling".into() },
+            SlotAssignment { slot_index: 1, agent_type: "claude".into(), skill_name: "backend".into(),
+                branch_name: format!("{}-api-models", branch_prefix),
+                task_description: "Data layer: models, migrations, repository pattern".into() },
+            SlotAssignment { slot_index: 2, agent_type: "gemini".into(), skill_name: "testing".into(),
+                branch_name: format!("{}-api-tests", branch_prefix),
+                task_description: "API tests: integration tests, contract validation, edge cases".into() },
+        ],
+        "observability" => vec![
+            SlotAssignment { slot_index: 0, agent_type: "claude".into(), skill_name: "backend".into(),
+                branch_name: format!("{}-ingestion", branch_prefix),
+                task_description: "Data ingestion: SDK, proxy mode, event processing pipeline".into() },
+            SlotAssignment { slot_index: 1, agent_type: "claude".into(), skill_name: "backend".into(),
+                branch_name: format!("{}-dashboard", branch_prefix),
+                task_description: "Dashboard: real-time metrics, cost analytics, query builder".into() },
+            SlotAssignment { slot_index: 2, agent_type: "gemini".into(), skill_name: "testing".into(),
+                branch_name: format!("{}-integration", branch_prefix),
+                task_description: "Integration: E2E pipeline tests, load testing, data validation".into() },
+        ],
+        _ => vec![
+            SlotAssignment { slot_index: 0, agent_type: "claude".into(), skill_name: "backend".into(),
+                branch_name: format!("{}-core", branch_prefix),
+                task_description: "Core implementation: business logic, data models, services".into() },
+            SlotAssignment { slot_index: 1, agent_type: "claude".into(), skill_name: "frontend".into(),
+                branch_name: format!("{}-interface", branch_prefix),
+                task_description: "Interface: UI components, user flows, API integration".into() },
+            SlotAssignment { slot_index: 2, agent_type: "gemini".into(), skill_name: "testing".into(),
+                branch_name: format!("{}-quality", branch_prefix),
+                task_description: "Quality: unit tests, integration tests, code review".into() },
+        ],
+    }
 }
 
 // ── US-004: Conductor Service ──
