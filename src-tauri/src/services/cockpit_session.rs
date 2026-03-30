@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
-use crate::db::{session_repo, slot_repo};
+use crate::db::{session_repo, slot_repo, chat_history_repo};
 use crate::services::{event_bus, stream_parser, cli_detector, cockpit_brain};
 
 // ── PRD-44: Cockpit Session Manager ──
@@ -77,8 +77,13 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
     // Generate the agent definition files
     let _ = cockpit_brain::generate_cockpit_agent_definition(project_path, &cop, &active_slots);
 
-    // Build context prompt
-    let prompt = build_cockpit_prompt(project_path, &cop, &active_slots);
+    // Build wake context from previous session (self-continuity)
+    let session = session_repo::active_session_for_path(project_path).ok().flatten();
+    let session_id_opt = session.as_ref().map(|s| s.id.as_str());
+    let wake_context = chat_history_repo::build_wake_context(session_id_opt).unwrap_or_default();
+
+    // Build context prompt with wake context injected
+    let prompt = build_cockpit_prompt(project_path, &cop, &active_slots, &wake_context);
 
     // Launch Claude Code headless with cockpit-brain agent
     let mut cmd = Command::new(&claude_path);
@@ -203,6 +208,7 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
 }
 
 /// Stop the cockpit session gracefully.
+/// Saves a wake prompt with current state before killing the process.
 pub fn stop_session() -> Result<(), String> {
     let process_id = {
         let cockpit = COCKPIT.lock().unwrap();
@@ -210,6 +216,9 @@ pub fn stop_session() -> Result<(), String> {
     };
 
     if let Some(pid) = process_id {
+        // Save wake prompt before shutdown (self-continuity)
+        save_wake_prompt_on_stop();
+
         #[cfg(unix)]
         {
             let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).status();
@@ -219,7 +228,6 @@ pub fn stop_session() -> Result<(), String> {
             let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).status();
         }
 
-        // Give it a moment, then force kill if needed
         std::thread::sleep(std::time::Duration::from_secs(2));
 
         let mut cockpit = COCKPIT.lock().unwrap();
@@ -229,6 +237,56 @@ pub fn stop_session() -> Result<(), String> {
         Ok(())
     } else {
         Err("No cockpit session running".into())
+    }
+}
+
+/// Build and save a wake prompt capturing current session state for resume.
+fn save_wake_prompt_on_stop() {
+    // Find the active session
+    let sessions = session_repo::fetch_all_sessions().unwrap_or_default();
+    let active = sessions.iter().find(|s| s.status == "active" || s.status == "initializing");
+
+    if let Some(session) = active {
+        let slots = slot_repo::fetch_slots_for_session(&session.id).unwrap_or_default();
+
+        // Build slot summaries
+        let slot_summaries: Vec<String> = slots.iter().map(|s| {
+            format!("Slot {} ({}): status={}, task={}",
+                s.slot_index, s.agent_type, s.status,
+                s.current_task.as_deref().unwrap_or("none"))
+        }).collect();
+        let slot_json = serde_json::to_string(&slot_summaries).unwrap_or_else(|_| "[]".into());
+
+        // Build observations from recent events
+        let observations = format!(
+            "Session had {} slots. Status at shutdown: {}",
+            slots.len(),
+            slots.iter().map(|s| format!("{}:{}", s.slot_index, s.status)).collect::<Vec<_>>().join(", ")
+        );
+
+        // Pending actions
+        let pending: Vec<String> = slots.iter()
+            .filter(|s| s.status == "running" || s.status == "provisioning")
+            .map(|s| format!("Continue monitoring slot {} ({})", s.slot_index, s.agent_type))
+            .collect();
+        let pending_json = serde_json::to_string(&pending).unwrap_or_else(|_| "[]".into());
+
+        let prompt = format!(
+            "Cockpit was monitoring {} for project at {}. {} slots were active.",
+            session.chairman_brief.as_deref().unwrap_or("session"),
+            session.project_path,
+            slots.len()
+        );
+
+        let _ = chat_history_repo::save_wake_prompt(
+            &session.id,
+            &prompt,
+            Some(&observations),
+            Some(&pending_json),
+            Some(&slot_json),
+        );
+
+        event_bus::emit_log("info", "cockpit-session", "Wake prompt saved for session resume", None);
     }
 }
 
@@ -367,6 +425,7 @@ fn build_cockpit_prompt(
     project_path: &str,
     cop: &cockpit_brain::CockpitOrchestrationPlan,
     active_slots: &[(i32, String, String, String)],
+    wake_context: &str,
 ) -> String {
     let slot_desc = if active_slots.is_empty() {
         "No dev agents are currently running. Enter idle/initiative mode.".to_string()
@@ -377,13 +436,30 @@ fn build_cockpit_prompt(
         format!("Active dev agents:\n{}", lines.join("\n"))
     };
 
+    let wake_section = if wake_context.is_empty() {
+        String::new()
+    } else {
+        format!(
+r#"
+
+## Previous Session Context (Self-Continuity)
+You are resuming from a previous session. Here is what you knew:
+
+{}
+
+Use this context to resume monitoring without re-scanning everything.
+Verify that the previous state still holds before acting on it."#,
+            wake_context
+        )
+    };
+
     format!(
 r#"You are the cockpit brain for {project_name} ({project_type}, {domain}).
 
 Current state:
 {slot_desc}
 
-Project path: {project_path}
+Project path: {project_path}{wake_section}
 
 Start monitoring. Use your observation protocol to check dev agent progress.
 If no agents are running, enter idle mode and produce deliverables.
@@ -393,6 +469,7 @@ Use /loop 30s for active monitoring, /loop 5m for idle mode."#,
         domain = cop.domain,
         slot_desc = slot_desc,
         project_path = project_path,
+        wake_section = wake_section,
     )
 }
 
@@ -446,7 +523,7 @@ mod tests {
             deliverables_path: ".crossroads/deliverables".into(),
             created_at: "2026-03-30".into(),
         };
-        let prompt = build_cockpit_prompt("/tmp/test", &cop, &[]);
+        let prompt = build_cockpit_prompt("/tmp/test", &cop, &[], "");
         assert!(prompt.contains("idle mode"));
         assert!(prompt.contains("/loop"));
     }
@@ -469,7 +546,7 @@ mod tests {
         let slots = vec![
             (0, "claude".into(), "feat/auth".into(), "Implement auth".into()),
         ];
-        let prompt = build_cockpit_prompt("/tmp/test", &cop, &slots);
+        let prompt = build_cockpit_prompt("/tmp/test", &cop, &slots, "");
         assert!(prompt.contains("Slot 0"));
         assert!(prompt.contains("feat/auth"));
     }

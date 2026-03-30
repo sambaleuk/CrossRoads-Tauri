@@ -1,5 +1,5 @@
 use crate::db::{session_repo, slot_repo, cost_repo, gate_repo, message_repo, skill_repo, metrics_repo, orchestration_repo};
-use crate::db::{org_role_repo, budget_repo, heartbeat_repo, workspace_repo, runtime_repo, config_snapshot_repo, learning_repo, memory_repo, trust_repo};
+use crate::db::{org_role_repo, budget_repo, heartbeat_repo, workspace_repo, runtime_repo, config_snapshot_repo, learning_repo, memory_repo, trust_repo, chat_history_repo};
 use crate::services::{cli_detector, git_service};
 use crate::services::agent_lifecycle::{self, SpawnRequest, AgentHealth, HealthAlert};
 use crate::services::orchestration_engine;
@@ -484,17 +484,27 @@ pub fn cockpit_activate(session_id: String) -> Result<cockpit_logic::ChairmanOut
                     req.handoff_context.as_deref().unwrap_or("your assigned stories")
                 );
 
-                match headless_launcher::launch_headless_agent(
-                    &req.slot_id, &agent_name, &prompt, &req.worktree_path, None,
-                ) {
+                // Route to the right launcher based on agent type
+                let launch_result = if req.agent_type == "claude" {
+                    headless_launcher::launch_headless_agent(
+                        &req.slot_id, &agent_name, &prompt, &req.worktree_path, None,
+                    )
+                } else {
+                    // Gemini/Codex: use native CLI launcher
+                    headless_launcher::launch_native_agent(
+                        &req.slot_id, &req.agent_type, &prompt, &req.worktree_path,
+                    )
+                };
+
+                match launch_result {
                     Ok(session) => {
                         event_bus::emit_log("info", "auto-launch",
-                            &format!("Headless agent {} spawned (pid: {})", agent_name, session.process_id), None);
+                            &format!("{} agent {} spawned (pid: {})", req.agent_type, agent_name, session.process_id), None);
                     }
                     Err(e) => {
                         // Fallback to legacy PTY spawn
                         event_bus::emit_log("warn", "auto-launch",
-                            &format!("Headless failed for {}: {}, trying PTY fallback", agent_name, e), None);
+                            &format!("Launch failed for {} {}: {}, trying PTY fallback", req.agent_type, agent_name, e), None);
                         let mgr = LIFECYCLE_MANAGER.lock().unwrap();
                         match mgr.spawn_agent(req.clone()) {
                             Ok(pid) => {
@@ -1129,4 +1139,24 @@ pub fn create_brain_deliverables_structure(project_path: String) -> Result<(), S
 #[tauri::command]
 pub fn get_brain_adaptation_actions(session_id: String) -> Result<Vec<cockpit_brain::AdaptationAction>, String> {
     cockpit_brain::get_adaptation_actions(&session_id)
+}
+
+// Chat History + Wake Prompts
+
+#[tauri::command]
+pub fn save_chat_message(session_id: String, role: String, content: String, mode: Option<String>) -> Result<String, String> {
+    chat_history_repo::save_message(&session_id, &role, &content, mode.as_deref(), None)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_chat_history(session_id: String, limit: Option<i64>) -> Result<Vec<chat_history_repo::ChatHistoryEntry>, String> {
+    chat_history_repo::fetch_history(&session_id, limit.unwrap_or(100))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_wake_context(session_id: Option<String>) -> Result<String, String> {
+    chat_history_repo::build_wake_context(session_id.as_deref())
+        .map_err(|e| e.to_string())
 }

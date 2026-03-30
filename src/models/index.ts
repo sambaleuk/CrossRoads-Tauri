@@ -662,3 +662,24 @@ export interface AdaptationAction {
   targetSlot?: string;
   reason: string;
 }
+
+// Chat History + Wake Prompts
+export interface ChatHistoryEntry {
+  id: string;
+  sessionId?: string;
+  role: string;
+  content: string;
+  mode?: string;
+  metadata?: string;
+  createdAt: string;
+}
+
+export interface CockpitWakePrompt {
+  id: string;
+  sessionId?: string;
+  prompt: string;
+  observations?: string;
+  pendingActions?: string;
+  slotSummaries?: string;
+  createdAt: string;
+}

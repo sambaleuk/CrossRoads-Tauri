@@ -3,6 +3,7 @@ import { useAppStore } from '../stores/appStore';
 import { invoke } from '@tauri-apps/api/core';
 import { PRDDetectedOverlay, detectPRDInResponse } from '../components/PRDDetectedOverlay';
 import { SlotAssignmentDialog } from '../components/SlotAssignmentDialog';
+import { saveChatMessage } from '../services/api';
 
 type MessageRole = 'user' | 'assistant' | 'system' | 'error';
 type ChatMode = 'cli' | 'api';
@@ -86,6 +87,9 @@ export function ChatPanel() {
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content, timestamp: new Date().toISOString() };
     setMessages(prev => [...prev, userMsg]);
 
+    // Persist user message (fire-and-forget)
+    if (session?.id) saveChatMessage(session.id, 'user', content, mode).catch(() => {});
+
     if (mode === 'cli') {
       await sendCliMessage(content);
     } else {
@@ -118,6 +122,8 @@ export function ChatPanel() {
 
       if (response) {
         setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, content: response, isStreaming: false } : m));
+        // Persist assistant response
+        if (session?.id) saveChatMessage(session.id, 'assistant', response, 'cli').catch(() => {});
         // Detect PRD in response
         const prd = detectPRDInResponse(response);
         if (prd) setDetectedPRD(prd);
@@ -197,6 +203,8 @@ export function ChatPanel() {
       }
 
       setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, isStreaming: false, content: acc || '(empty)' } : m));
+      // Persist assistant response
+      if (session?.id && acc) saveChatMessage(session.id, 'assistant', acc, 'api').catch(() => {});
       // Detect PRD in response
       const prd = detectPRDInResponse(acc);
       if (prd) setDetectedPRD(prd);

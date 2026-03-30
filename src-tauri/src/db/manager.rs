@@ -62,6 +62,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("v16_agent_memory", V16_AGENT_MEMORY),
         ("v17_trust_score", V17_TRUST_SCORE),
         ("v18_claude_session_id", V18_CLAUDE_SESSION_ID),
+        ("v19_chat_history", V19_CHAT_HISTORY),
     ];
 
     for (name, sql) in migrations {
@@ -451,6 +452,31 @@ const V18_CLAUDE_SESSION_ID: &str = "
     ALTER TABLE agent_slot ADD COLUMN claudeSessionId TEXT;
 ";
 
+const V19_CHAT_HISTORY: &str = "
+    CREATE TABLE chat_history (
+        id TEXT PRIMARY KEY NOT NULL,
+        sessionId TEXT REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        mode TEXT,
+        metadata TEXT,
+        createdAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_chat_history_session ON chat_history (sessionId);
+    CREATE INDEX idx_chat_history_created ON chat_history (createdAt);
+
+    CREATE TABLE cockpit_wake_prompt (
+        id TEXT PRIMARY KEY NOT NULL,
+        sessionId TEXT REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        prompt TEXT NOT NULL,
+        observations TEXT,
+        pendingActions TEXT,
+        slotSummaries TEXT,
+        createdAt TEXT NOT NULL
+    );
+    CREATE INDEX idx_wake_prompt_session ON cockpit_wake_prompt (sessionId);
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,7 +491,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 18);
+        assert_eq!(count, 19);
     }
 
     #[test]
@@ -520,7 +546,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 18);
+        assert_eq!(count, 19);
     }
 
     #[test]

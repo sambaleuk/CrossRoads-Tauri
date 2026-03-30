@@ -386,3 +386,11 @@ export const getCockpitStatus = () =>
   invoke<{ isAlive: boolean; processId?: number; sessionId?: string; startedAt?: string; eventCount: number }>('get_cockpit_status');
 export const generateCockpitAgentDefinition = (projectPath: string) =>
   invoke<any[]>('generate_cockpit_agent_definition', { projectPath });
+
+// Chat History + Wake Prompts
+export const saveChatMessage = (sessionId: string, role: string, content: string, mode?: string) =>
+  invoke<string>('save_chat_message', { sessionId, role, content, mode });
+export const fetchChatHistory = (sessionId: string, limit?: number) =>
+  invoke<any[]>('fetch_chat_history', { sessionId, limit });
+export const getWakeContext = (sessionId?: string) =>
+  invoke<string>('get_wake_context', { sessionId });

@@ -198,6 +198,10 @@ fn main() {
             commands::generate_brain_transverse_skill,
             commands::create_brain_deliverables_structure,
             commands::get_brain_adaptation_actions,
+            // Chat History + Wake Prompts
+            commands::save_chat_message,
+            commands::fetch_chat_history,
+            commands::get_wake_context,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

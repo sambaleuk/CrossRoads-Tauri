@@ -16,3 +16,4 @@ pub mod config_snapshot_repo;
 pub mod learning_repo;
 pub mod memory_repo;
 pub mod trust_repo;
+pub mod chat_history_repo;
