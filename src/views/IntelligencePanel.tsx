@@ -19,12 +19,14 @@ export function IntelligencePanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     (async () => {
       try {
-        const [ts, pp] = await Promise.all([
+        const [ts, pp, mems] = await Promise.all([
           api.fetchTrustScores(),
           api.fetchPerformanceProfiles(),
+          api.searchMemories(''),
         ]);
         setTrustScores(ts);
         setProfiles(pp);
+        if (mems.length > 0) setMemories(mems);
       } catch {}
       setLoading(false);
     })();

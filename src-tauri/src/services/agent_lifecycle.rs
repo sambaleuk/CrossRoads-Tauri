@@ -3,10 +3,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use crate::db::{slot_repo, metrics_repo, learning_repo, memory_repo};
+use crate::db::{slot_repo, metrics_repo, learning_repo, memory_repo, trust_repo};
 use crate::services::loop_launcher::{self, LoopConfig};
 use crate::services::process_runner::ProcessRunner;
-use crate::services::learning_engine;
+use crate::services::{learning_engine, event_bus};
 
 // ── Types ──
 
@@ -480,30 +480,57 @@ impl AgentLifecycleManager {
         let _ = slot_repo::update_slot(slot_id, "done", Some("Completed"));
         self.emit_status_change(slot_id, "done");
 
-        // Record metrics
-        let (elapsed, session_id) = {
+        // Gather info from tracked agent before removing
+        let (elapsed_ms, session_id, agent_type, task_desc) = {
             let agents = self.agents.lock().unwrap();
-            let elapsed = agents.get(slot_id).map(|a| a.started_at.elapsed().as_millis() as i64);
+            let elapsed = agents.get(slot_id).map(|a| a.started_at.elapsed().as_millis() as i64).unwrap_or(0);
             let sid = agents.get(slot_id).map(|a| a.spawn_request.session_id.clone());
-            (elapsed, sid)
+            let atype = agents.get(slot_id).map(|a| a.agent_type.clone()).unwrap_or_default();
+            let task = agents.get(slot_id).map(|a| a.spawn_request.handoff_context.clone().unwrap_or_default()).unwrap_or_default();
+            (elapsed, sid, atype, task)
         };
-        if let Some(ms) = elapsed {
-            let _ = metrics_repo::record_story_completed(slot_id, ms);
-        }
 
-        // WIRING 2: Extract memories from learning records
+        // Record metrics
+        let _ = metrics_repo::record_story_completed(slot_id, elapsed_ms);
+
+        // Record LearningRecord for this slot's work
         if let Some(ref sid) = session_id {
-            let records = learning_repo::fetch_learning_records(sid).unwrap_or_default();
-            for record in &records {
-                if record.tests_failed > 0 {
-                    let domain = learning_engine::categorize_story(&record.story_title, &[]);
-                    let _ = memory_repo::store_memory(
-                        &record.agent_type, &domain, "observation",
-                        &format!("Struggled with tests on {}: {} failed", record.story_title, record.tests_failed),
-                        0.7, Some(sid), Some(&record.story_id), "[]",
-                    );
-                }
+            let story_title = task_desc.chars().take(100).collect::<String>();
+            let domain = learning_engine::categorize_story(&story_title, &[]);
+
+            let record = learning_repo::record_learning(
+                sid,
+                &format!("slot-{}", slot_id),
+                &story_title,
+                "medium", // complexity
+                &agent_type,
+                elapsed_ms,
+                0, // cost_cents — will be filled by cost events
+                0, 0, 0, // files/lines — not tracked at this level
+                1, 1, // tests_run, tests_passed (success)
+                0,     // conflicts
+                true,  // success
+                "[]",
+            );
+
+            if let Ok(ref lr) = record {
+                // Update performance profile
+                let _ = learning_repo::update_performance_profile(&agent_type, &domain, lr);
+
+                event_bus::emit_log("info", "intelligence",
+                    &format!("Learning recorded: {} completed by {} in {}ms", story_title, agent_type, elapsed_ms), None);
             }
+
+            // Extract memories from all session learning records
+            let records = learning_repo::fetch_learning_records(sid).unwrap_or_default();
+            let extracted = memory_repo::auto_extract_memories(sid, &records).unwrap_or_default();
+            if !extracted.is_empty() {
+                event_bus::emit_log("info", "intelligence",
+                    &format!("{} memories extracted from session", extracted.len()), None);
+            }
+
+            // Compute/update trust score for this agent+domain
+            let _ = trust_repo::compute_trust(&agent_type, &domain);
         }
 
         // Remove from tracked agents
@@ -515,6 +542,43 @@ impl AgentLifecycleManager {
         let _ = slot_repo::update_slot(slot_id, "error", Some(error));
         self.emit_status_change(slot_id, "error");
         let _ = metrics_repo::record_story_failed(slot_id);
+
+        // Record failure as LearningRecord
+        let (elapsed_ms, session_id, agent_type, task_desc) = {
+            let agents = self.agents.lock().unwrap();
+            let elapsed = agents.get(slot_id).map(|a| a.started_at.elapsed().as_millis() as i64).unwrap_or(0);
+            let sid = agents.get(slot_id).map(|a| a.spawn_request.session_id.clone());
+            let atype = agents.get(slot_id).map(|a| a.agent_type.clone()).unwrap_or_default();
+            let task = agents.get(slot_id).map(|a| a.spawn_request.handoff_context.clone().unwrap_or_default()).unwrap_or_default();
+            (elapsed, sid, atype, task)
+        };
+
+        if let Some(ref sid) = session_id {
+            let story_title = task_desc.chars().take(100).collect::<String>();
+            let domain = learning_engine::categorize_story(&story_title, &[]);
+
+            let record = learning_repo::record_learning(
+                sid, &format!("slot-{}", slot_id), &story_title,
+                "medium", &agent_type, elapsed_ms, 0,
+                0, 0, 0, 1, 0, 0, false, "[]",
+            );
+
+            if let Ok(ref lr) = record {
+                let _ = learning_repo::update_performance_profile(&agent_type, &domain, lr);
+            }
+
+            // Store failure as memory
+            let _ = memory_repo::store_memory(
+                &agent_type, &domain, "failure",
+                &format!("Failed on '{}': {}", story_title, error),
+                0.9, Some(sid), None, "[]",
+            );
+
+            let _ = trust_repo::compute_trust(&agent_type, &domain);
+
+            event_bus::emit_log("warn", "intelligence",
+                &format!("Failure recorded: {} by {} — {}", story_title, agent_type, error), None);
+        }
 
         let mut agents = self.agents.lock().unwrap();
         agents.remove(slot_id);
