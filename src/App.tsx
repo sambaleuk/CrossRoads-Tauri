@@ -7,6 +7,7 @@ import { CockpitPanel } from './views/CockpitPanel';
 import { CommandPalette, useCommandPalette } from './components/CommandPalette';
 import { ReviewOverlay } from './components/ReviewOverlay';
 import { IntelligencePanel } from './views/IntelligencePanel';
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher';
 import { useAppStore } from './stores/appStore';
 import { initEventListeners } from './services/eventBus';
 
@@ -58,6 +59,7 @@ export default function App() {
       <Toolbar />
 
       <div className="flex flex-1 overflow-hidden">
+        <WorkspaceSwitcher />
         {showChat && <ChatPanel />}
         <Dashboard />
         {showCockpit && (
