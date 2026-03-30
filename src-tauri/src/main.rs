@@ -124,6 +124,7 @@ fn main() {
             commands::cleanup_worktrees,
             commands::detect_stale_sessions,
             // PRD-23: Terminal PTY input
+            commands::run_claude_cli,
             commands::send_pty_input,
             // Phase 5: Org Chart (PRD-35)
             commands::create_org_role,

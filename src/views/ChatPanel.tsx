@@ -1,21 +1,9 @@
-import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAppStore } from '../stores/appStore';
-import {
-  allAgentHealth,
-  costSummarySession,
-  cockpitPause,
-  cockpitResume,
-  cockpitClose,
-  fetchTrustScores,
-  fetchPerformanceProfiles,
-} from '../services/api';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { invoke } from '@tauri-apps/api/core';
 
 type MessageRole = 'user' | 'assistant' | 'system' | 'error';
-type ApiMode = 'cli' | 'api';
+type ChatMode = 'cli' | 'api';
 
 interface ChatMessage {
   id: string;
@@ -25,532 +13,239 @@ interface ChatMessage {
   isStreaming?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+const SYSTEM_PROMPT = `You are the XRoads orchestrator assistant — an AI pair-programmer that helps developers manage multi-agent coding sessions.
 
-const CLI_SUGGESTIONS = ['show status', 'show costs', 'pause all', 'help'];
-const API_SUGGESTIONS = ['Write a PRD for...', 'Explain this code', 'Analyze dependencies'];
+You have deep knowledge of:
+- PRD-driven development (user stories, dependency layers, parallel dispatch)
+- Git worktree isolation (each agent works on its own branch)
+- Agent orchestration (Claude Code, Gemini CLI, Codex CLI)
+- Cost management (budget caps, model routing, cost projections)
+- Code safety (dangerous operation detection, approval gates)
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
-const SYSTEM_PROMPT =
-  'You are the XRoads orchestrator assistant. Help the user manage their multi-agent coding sessions. You can explain features, suggest PRDs, analyze code patterns. Be concise and direct.';
+When asked to create a PRD, output a JSON code block with feature_name, user_stories, dependencies.
+Be concise and direct. Lead with the answer.`;
 
-const roleStyles: Record<MessageRole, string> = {
-  user: 'text-neon-green',
-  assistant: 'text-gray-300',
-  system: 'text-gray-500 italic',
-  error: 'text-red-400',
-};
+const CLI_SUGGESTIONS = ['Create a PRD for...', 'Plan orchestration', 'What agents should I use?', 'Explain my codebase'];
+const API_SUGGESTIONS = ['Write a PRD for auth', 'Analyze dependencies', 'How to structure this?', 'Review my approach'];
 
-const roleLabelsCli: Record<MessageRole, string> = {
-  user: 'YOU',
-  assistant: 'ORCH',
-  system: 'SYS',
-  error: 'ERR',
-};
-
-const roleLabelsApi: Record<MessageRole, string> = {
-  user: 'YOU',
-  assistant: 'AI',
-  system: 'SYS',
-  error: 'ERR',
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function uid(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+function loadApiKey(): string {
+  try {
+    const s = JSON.parse(localStorage.getItem('xroads-settings') ?? '{}');
+    return s['anthropicApiKey'] ?? '';
+  } catch { return ''; }
 }
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-/** Render markdown-ish text: **bold**, `inline code`, ```code blocks``` */
-function renderFormattedContent(text: string): ReactNode {
-  const parts: ReactNode[] = [];
-  // Split on code blocks first
-  const codeBlockRegex = /```([\s\S]*?)```/g;
-  let lastIdx = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    if (match.index > lastIdx) {
-      parts.push(<span key={lastIdx}>{renderInline(text.slice(lastIdx, match.index))}</span>);
-    }
-    parts.push(
-      <pre key={match.index} className="bg-gray-900 border border-gray-700 rounded px-2 py-1 my-1 overflow-x-auto text-[10px] text-gray-300 whitespace-pre-wrap">
-        {match[1].trim()}
-      </pre>
-    );
-    lastIdx = match.index + match[0].length;
-  }
-  if (lastIdx < text.length) {
-    parts.push(<span key={lastIdx}>{renderInline(text.slice(lastIdx))}</span>);
-  }
-  return <>{parts}</>;
-}
-
-function renderInline(text: string): ReactNode {
-  const parts: ReactNode[] = [];
-  const inlineRegex = /(\*\*(.+?)\*\*|`([^`]+)`)/g;
-  let lastIdx = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = inlineRegex.exec(text)) !== null) {
-    if (match.index > lastIdx) {
-      parts.push(text.slice(lastIdx, match.index));
-    }
-    if (match[2]) {
-      parts.push(<strong key={match.index} className="font-bold text-white">{match[2]}</strong>);
-    } else if (match[3]) {
-      parts.push(
-        <code key={match.index} className="bg-gray-800 px-1 rounded text-neon-green text-[10px]">{match[3]}</code>
-      );
-    }
-    lastIdx = match.index + match[0].length;
-  }
-  if (lastIdx < text.length) {
-    parts.push(text.slice(lastIdx));
-  }
-  return <>{parts}</>;
-}
-
-// ---------------------------------------------------------------------------
-// CLI Command Dispatcher
-// ---------------------------------------------------------------------------
-
-async function dispatchCliCommand(
-  raw: string,
-  sessionId: string | null,
-  slots: ReturnType<typeof useAppStore.getState>['slots'],
-  sessionStatus: string | undefined,
-): Promise<string> {
-  const input = raw.trim().toLowerCase();
-
-  // help
-  if (input === 'help') {
-    return [
-      '--- Available Commands ---',
-      'start orchestration  Start orchestration (requires active session + PRD)',
-      'load prd             Load a PRD file (placeholder)',
-      'show status / status Show session & slot statuses',
-      'show agents          Show all agent health',
-      'show costs / costs   Show session cost summary',
-      'pause / pause all    Pause the session',
-      'resume               Resume the session',
-      'stop / stop all      Close the session',
-      'show trust           Show trust scores',
-      'show profiles        Show performance profiles',
-      'help                 Show this message',
-    ].join('\n');
-  }
-
-  // status
-  if (input === 'show status' || input === 'status') {
-    const lines = [`Session: ${sessionId ?? 'none'}`, `Status:  ${sessionStatus ?? 'idle'}`];
-    if (slots.length === 0) {
-      lines.push('Slots:   (none)');
-    } else {
-      lines.push(`Slots:   ${slots.length}`);
-      for (const s of slots) {
-        lines.push(`  [${s.slotIndex}] ${s.agentType.padEnd(7)} ${s.status.padEnd(16)} ${s.currentTask ?? ''}`);
-      }
-    }
-    return lines.join('\n');
-  }
-
-  // show agents
-  if (input === 'show agents' || input === 'agent status') {
-    const healths = await allAgentHealth();
-    if (healths.length === 0) return 'No agents registered.';
-    return healths
-      .map((h) => `[${h.slotId.slice(0, 8)}] ${h.agentType.padEnd(7)} status=${h.status} progress=${h.progressPct ?? '-'}% task=${h.currentTask ?? '-'}`)
-      .join('\n');
-  }
-
-  // costs
-  if (input === 'show costs' || input === 'costs') {
-    if (!sessionId) return 'No active session.';
-    const summary = await costSummarySession(sessionId);
-    return [
-      '--- Cost Summary ---',
-      `Input tokens:  ${summary.totalInputTokens.toLocaleString()}`,
-      `Output tokens: ${summary.totalOutputTokens.toLocaleString()}`,
-      `Total cost:    $${(summary.totalCostCents / 100).toFixed(4)}`,
-      `Events:        ${summary.eventCount}`,
-    ].join('\n');
-  }
-
-  // pause
-  if (input === 'pause' || input === 'pause all') {
-    if (!sessionId) return 'No active session to pause.';
-    await cockpitPause(sessionId);
-    return 'Session paused.';
-  }
-
-  // resume
-  if (input === 'resume') {
-    if (!sessionId) return 'No active session to resume.';
-    await cockpitResume(sessionId);
-    return 'Session resumed.';
-  }
-
-  // stop
-  if (input === 'stop' || input === 'stop all') {
-    if (!sessionId) return 'No active session to stop.';
-    await cockpitClose(sessionId);
-    return 'Session closed.';
-  }
-
-  // trust
-  if (input === 'show trust' || input === 'trust scores') {
-    const scores = await fetchTrustScores();
-    if (scores.length === 0) return 'No trust scores recorded yet.';
-    return scores
-      .map((t) => `${t.agentType.padEnd(8)} ${t.domain.padEnd(16)} score=${t.score.toFixed(2)} stories=${t.totalStories} (${t.successfulStories} ok)`)
-      .join('\n');
-  }
-
-  // profiles
-  if (input === 'show profiles' || input === 'performance') {
-    const profiles = await fetchPerformanceProfiles();
-    if (profiles.length === 0) return 'No performance profiles yet.';
-    return profiles
-      .map((p) => `${p.agentType.padEnd(8)} ${p.taskCategory.padEnd(16)} avg=${p.avgDurationMs}ms success=${(p.successRate * 100).toFixed(0)}%`)
-      .join('\n');
-  }
-
-  // start orchestration
-  if (input === 'start orchestration') {
-    if (!sessionId) return 'No active session. Create a session first.';
-    return 'Orchestration requires a PRD path. Use: load prd';
-  }
-
-  // load prd
-  if (input === 'load prd') {
-    return 'PRD file picker not yet integrated. Provide a PRD path directly via start orchestration.';
-  }
-
-  return "Unknown command. Type 'help' for available commands.";
-}
-
-// ---------------------------------------------------------------------------
-// Anthropic Streaming API
-// ---------------------------------------------------------------------------
-
-async function streamAnthropicResponse(
-  messages: Array<{ role: string; content: string }>,
-  apiKey: string,
-  onDelta: (text: string) => void,
-  signal: AbortSignal,
-): Promise<void> {
-  const response = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      stream: true,
-      messages,
-    }),
-    signal,
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    if (response.status === 401) throw new Error('Invalid API key. Check Settings > API Keys.');
-    if (response.status === 429) throw new Error('Rate limited. Please wait and try again.');
-    throw new Error(`API error ${response.status}: ${body.slice(0, 200)}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('No response body');
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') return;
-        try {
-          const event = JSON.parse(data);
-          if (event.type === 'content_block_delta' && event.delta?.text) {
-            onDelta(event.delta.text);
-          }
-        } catch {
-          // skip non-JSON lines
-        }
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function ChatPanel() {
-  const { session, projectPath, slots } = useAppStore();
+  const { session, projectPath } = useAppStore();
   const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: uid(),
-      role: 'system',
-      content: 'XRoads orchestrator ready. Type "help" for commands or switch to API mode for AI chat.',
-      timestamp: new Date().toISOString(),
-    },
+    { id: '0', role: 'system', content: 'XRoads ready. CLI mode = real Claude conversation via terminal. API mode = direct Anthropic API with streaming.', timestamp: new Date().toISOString() },
   ]);
   const [input, setInput] = useState('');
-  const [apiMode, setApiMode] = useState<ApiMode>('cli');
+  const [mode, setMode] = useState<ChatMode>('cli');
   const [isLoading, setIsLoading] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Add a message to state
-  const addMessage = useCallback((role: MessageRole, content: string, isStreaming = false): string => {
-    const id = uid();
-    setMessages((prev) => [...prev, { id, role, content, timestamp: new Date().toISOString(), isStreaming }]);
-    return id;
-  }, []);
-
-  // Update a message by id
-  const updateMessage = useCallback((id: string, updater: (msg: ChatMessage) => ChatMessage) => {
-    setMessages((prev) => prev.map((m) => (m.id === id ? updater(m) : m)));
-  }, []);
-
-  // Handle CLI command
-  const handleCliCommand = useCallback(
-    async (text: string) => {
-      setIsLoading(true);
-      try {
-        const result = await dispatchCliCommand(text, session?.id ?? null, slots, session?.status);
-        addMessage('assistant', result);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        addMessage('error', `Command failed: ${msg}`);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [session, slots, addMessage],
-  );
-
-  // Handle API chat
-  const handleApiChat = useCallback(
-    async (text: string) => {
-      const apiKey = localStorage.getItem('anthropicApiKey');
-      if (!apiKey) {
-        addMessage('error', 'No API key found. Set your Anthropic API key in Settings > API Keys.');
-        return;
-      }
-
-      setIsLoading(true);
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      // Build conversation history (last 20 messages)
-      const history = messages
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .slice(-20)
-        .map((m) => ({ role: m.role, content: m.content }));
-      history.push({ role: 'user', content: text });
-
-      const assistantId = addMessage('assistant', '', true);
-
-      try {
-        let accumulated = '';
-        await streamAnthropicResponse(
-          history,
-          apiKey,
-          (delta) => {
-            accumulated += delta;
-            const current = accumulated;
-            updateMessage(assistantId, (m) => ({ ...m, content: current }));
-          },
-          controller.signal,
-        );
-
-        // Finalize
-        updateMessage(assistantId, (m) => ({ ...m, isStreaming: false }));
-
-        // Check for PRD JSON in response
-        if (accumulated.includes('"stories"') && accumulated.includes('"userStory"')) {
-          addMessage('system', 'Detected PRD structure in response. Copy it to a .json file to use with orchestration.');
-        }
-      } catch (err: unknown) {
-        if ((err as Error).name === 'AbortError') {
-          updateMessage(assistantId, (m) => ({ ...m, content: m.content + '\n[Cancelled]', isStreaming: false }));
-        } else {
-          const msg = err instanceof Error ? err.message : String(err);
-          updateMessage(assistantId, (m) => ({ ...m, content: '', isStreaming: false }));
-          addMessage('error', msg);
-        }
-      } finally {
-        setIsLoading(false);
-        abortRef.current = null;
-      }
-    },
-    [messages, addMessage, updateMessage],
-  );
-
-  // Send message
-  const sendMessage = useCallback(() => {
-    const text = input.trim();
-    if (!text || isLoading) return;
-
-    addMessage('user', text);
+  const sendMessage = useCallback(async () => {
+    if (!input.trim() || isLoading) return;
+    const content = input.trim();
     setInput('');
 
-    if (apiMode === 'cli') {
-      handleCliCommand(text);
+    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content, timestamp: new Date().toISOString() };
+    setMessages(prev => [...prev, userMsg]);
+
+    if (mode === 'cli') {
+      await sendCliMessage(content);
     } else {
-      handleApiChat(text);
+      await sendApiMessage(content);
     }
-  }, [input, isLoading, apiMode, addMessage, handleCliCommand, handleApiChat]);
+  }, [input, isLoading, mode, messages]);
 
-  // Cancel streaming
-  const cancelStreaming = useCallback(() => {
-    abortRef.current?.abort();
-  }, []);
+  // ── CLI Mode: Real Claude conversation via `claude` CLI binary ──
 
-  const suggestions = apiMode === 'cli' ? CLI_SUGGESTIONS : API_SUGGESTIONS;
-  const roleLabels = apiMode === 'cli' ? roleLabelsCli : roleLabelsApi;
+  const sendCliMessage = async (content: string) => {
+    setIsLoading(true);
+    const placeholderId = (Date.now() + 1).toString();
+    setMessages(prev => [...prev, { id: placeholderId, role: 'assistant', content: '', timestamp: new Date().toISOString(), isStreaming: true }]);
+
+    try {
+      const history = messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .slice(-10)
+        .map(m => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`)
+        .join('\n\n');
+
+      const fullPrompt = history ? `${history}\n\nHuman: ${content}` : content;
+
+      // Call Claude CLI via Tauri backend command
+      const response = await invoke<string>('run_claude_cli', {
+        prompt: fullPrompt,
+        systemPrompt: SYSTEM_PROMPT,
+        workingDirectory: projectPath ?? undefined,
+      }).catch(() => null);
+
+      if (response) {
+        setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, content: response, isStreaming: false } : m));
+      } else {
+        setMessages(prev => prev.map(m => m.id === placeholderId
+          ? { ...m, role: 'error' as MessageRole, content: 'Claude CLI not found. Install `claude` (Claude Code) or switch to API mode.\n\nInstall: npm install -g @anthropic-ai/claude-code', isStreaming: false }
+          : m
+        ));
+      }
+    } catch (err) {
+      setMessages(prev => prev.map(m => m.id === placeholderId
+        ? { ...m, role: 'error' as MessageRole, content: `CLI error: ${err}`, isStreaming: false }
+        : m
+      ));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── API Mode: Direct Anthropic API with SSE streaming ──
+
+  const sendApiMessage = async (content: string) => {
+    const apiKey = loadApiKey();
+    if (!apiKey) {
+      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'error', content: 'No API key. Go to Settings → API Keys → Anthropic.', timestamp: new Date().toISOString() }]);
+      return;
+    }
+
+    setIsLoading(true);
+    const controller = new AbortController();
+    setAbortController(controller);
+    const placeholderId = (Date.now() + 1).toString();
+    setMessages(prev => [...prev, { id: placeholderId, role: 'assistant', content: '', timestamp: new Date().toISOString(), isStreaming: true }]);
+
+    try {
+      const apiMessages = messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .slice(-20)
+        .map(m => ({ role: m.role, content: m.content }));
+      apiMessages.push({ role: 'user', content });
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4096, system: SYSTEM_PROMPT, messages: apiMessages, stream: true }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) throw new Error(res.status === 401 ? 'Invalid API key' : res.status === 429 ? 'Rate limited' : `API ${res.status}`);
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let acc = '';
+      let buf = '';
+
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          try {
+            const d = JSON.parse(line.slice(6));
+            if (d.type === 'content_block_delta' && d.delta?.text) {
+              acc += d.delta.text;
+              setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, content: acc } : m));
+            }
+          } catch { /* skip */ }
+        }
+      }
+
+      setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, isStreaming: false, content: acc || '(empty)' } : m));
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, content: m.content + '\n*(cancelled)*', isStreaming: false } : m));
+      } else {
+        setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, role: 'error' as MessageRole, content: `${err.message ?? err}`, isStreaming: false } : m));
+      }
+    } finally {
+      setIsLoading(false);
+      setAbortController(null);
+    }
+  };
+
+  const suggestions = mode === 'cli' ? CLI_SUGGESTIONS : API_SUGGESTIONS;
 
   return (
     <div className="w-72 flex flex-col border-r border-gray-800 bg-gray-950">
-      {/* Header */}
       <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
         <span className="text-[11px] font-bold font-mono text-gray-300 tracking-wider">ORCHESTRATOR</span>
         <div className="flex gap-1">
-          {(['cli', 'api'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setApiMode(mode)}
-              className={`px-1.5 py-0.5 text-[9px] font-mono rounded transition-colors ${
-                apiMode === mode ? 'bg-neon-green/20 text-neon-green' : 'text-gray-500 hover:text-gray-400'
-              }`}
-            >
-              {mode.toUpperCase()}
+          {(['cli', 'api'] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`px-1.5 py-0.5 text-[9px] font-mono rounded transition-colors ${mode === m ? 'bg-neon-green/20 text-neon-green' : 'text-gray-500 hover:text-gray-400'}`}>
+              {m.toUpperCase()}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-auto p-3 space-y-3">
         {messages.map((msg) => (
-          <div key={msg.id} className="space-y-0.5">
+          <div key={msg.id} className="space-y-0.5 xr-animate-fade-in">
             <div className="flex items-center gap-1.5">
-              <span className={`text-[9px] font-bold font-mono ${roleStyles[msg.role]}`}>
-                {roleLabels[msg.role]}
+              <span className={`text-[9px] font-bold font-mono ${msg.role === 'user' ? 'text-neon-green' : msg.role === 'error' ? 'text-red-400' : msg.role === 'system' ? 'text-gray-500' : 'text-neon-blue'}`}>
+                {msg.role === 'user' ? 'YOU' : msg.role === 'system' ? 'SYS' : msg.role === 'error' ? 'ERR' : 'CLAUDE'}
               </span>
               <span className="text-[8px] text-gray-600 font-mono">
-                {formatTime(msg.timestamp)}
+                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
-              {msg.isStreaming && (
-                <span className="text-[8px] text-neon-green animate-pulse font-mono">streaming...</span>
-              )}
+              {msg.isStreaming && <span className="text-[8px] text-neon-green animate-pulse">streaming...</span>}
             </div>
-            <div
-              className={`text-[11px] leading-relaxed ${roleStyles[msg.role]} ${
-                msg.role === 'assistant' && apiMode === 'cli' ? 'font-mono whitespace-pre-wrap' : 'font-mono'
-              }`}
-            >
-              {msg.role === 'assistant' && apiMode === 'api'
-                ? renderFormattedContent(msg.content)
-                : msg.content}
+            <div className={`text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-words ${msg.role === 'user' ? 'text-neon-green' : msg.role === 'error' ? 'text-red-400' : msg.role === 'system' ? 'text-gray-500 italic' : 'text-gray-300'}`}>
+              {msg.content || (msg.isStreaming ? '...' : '')}
             </div>
           </div>
         ))}
-        {isLoading && apiMode === 'cli' && (
-          <div className="flex items-center gap-2 text-[10px] text-gray-500 font-mono">
-            <span className="inline-block w-3 h-3 border-2 border-neon-green/30 border-t-neon-green rounded-full animate-spin" />
-            Processing...
-          </div>
-        )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Suggestion chips */}
       <div className="px-3 py-1.5 flex flex-wrap gap-1 border-t border-gray-800/50">
         {suggestions.map((s) => (
-          <button
-            key={s}
-            onClick={() => setInput(s)}
-            className="px-2 py-0.5 text-[9px] font-mono text-gray-500 bg-gray-800/50 rounded hover:text-neon-green hover:bg-gray-800 transition-colors"
-          >
+          <button key={s} onClick={() => setInput(s)}
+            className="px-2 py-0.5 text-[9px] font-mono text-gray-500 bg-gray-800/50 rounded hover:text-neon-green hover:bg-gray-800 transition-colors truncate max-w-[130px]">
             {s}
           </button>
         ))}
       </div>
 
-      {/* Input */}
       <div className="p-2 border-t border-gray-800">
         <div className="flex gap-1.5">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            placeholder={apiMode === 'cli' ? 'Type a command...' : 'Ask the AI...'}
-            className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-[11px] font-mono text-gray-200 placeholder:text-gray-600 focus:border-neon-green/40 focus:outline-none"
-            disabled={isLoading}
-          />
-          {isLoading && apiMode === 'api' ? (
-            <button
-              onClick={cancelStreaming}
-              className="px-2.5 py-1.5 bg-red-500/20 text-red-400 text-[10px] font-mono rounded border border-red-500/30 hover:bg-red-500/30 transition-colors"
-              title="Cancel"
-            >
-              ■
-            </button>
+          <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && sendMessage()} disabled={isLoading}
+            placeholder={mode === 'cli' ? 'Talk to Claude...' : 'Ask anything...'}
+            className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-[11px] font-mono text-gray-200 placeholder:text-gray-600 focus:border-neon-green/40 focus:outline-none disabled:opacity-50" />
+          {isLoading ? (
+            <button onClick={() => abortController?.abort()}
+              className="px-2.5 py-1.5 bg-red-500/20 text-red-400 text-[10px] font-mono rounded border border-red-500/30 hover:bg-red-500/30 transition-colors">■</button>
           ) : (
-            <button
-              onClick={sendMessage}
-              disabled={isLoading}
-              className="px-2.5 py-1.5 bg-neon-green/20 text-neon-green text-[10px] font-mono rounded border border-neon-green/30 hover:bg-neon-green/30 transition-colors disabled:opacity-40"
-            >
-              ↵
-            </button>
+            <button onClick={sendMessage}
+              className="px-2.5 py-1.5 bg-neon-green/20 text-neon-green text-[10px] font-mono rounded border border-neon-green/30 hover:bg-neon-green/30 transition-colors">↵</button>
           )}
         </div>
       </div>
 
-      {/* Status bar */}
       <div className="px-3 py-1 border-t border-gray-800 flex items-center gap-2 text-[8px] font-mono text-gray-600">
-        <span
-          className={`w-1.5 h-1.5 rounded-full ${
-            session?.status === 'active' ? 'bg-emerald-500' : session?.status === 'paused' ? 'bg-yellow-500' : 'bg-gray-600'
-          }`}
-        />
+        <span className={`w-1.5 h-1.5 rounded-full ${isLoading ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
         <span className="truncate">{projectPath?.split('/').pop() ?? 'No project'}</span>
         <span>|</span>
         <span>{session?.status ?? 'idle'}</span>
         <span>|</span>
-        <span className={apiMode === 'api' ? 'text-blue-400' : 'text-neon-green'}>{apiMode.toUpperCase()}</span>
+        <span className={mode === 'api' ? 'text-neon-blue' : 'text-neon-green'}>{mode}</span>
       </div>
     </div>
   );

@@ -588,6 +588,40 @@ pub fn detect_stale_sessions() -> Result<Vec<session_persistence::RecoveryInfo>,
     session_persistence::detect_stale_sessions()
 }
 
+// Chat: Run Claude CLI for real conversation
+
+#[tauri::command]
+pub async fn run_claude_cli(prompt: String, system_prompt: String, working_directory: Option<String>) -> Result<String, String> {
+    // Find claude binary
+    let claude_path = cli_detector::find_loop_script("claude")
+        .or_else(|| {
+            // Try common paths
+            let paths = ["/usr/local/bin/claude", "/opt/homebrew/bin/claude"];
+            paths.iter().find(|p| std::path::Path::new(p).exists()).map(|p| p.to_string())
+        })
+        .ok_or_else(|| "Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code".to_string())?;
+
+    let mut cmd = std::process::Command::new(&claude_path);
+    cmd.args(["--dangerously-skip-permissions", "--output-format", "text", "-p", &prompt]);
+
+    if let Some(ref dir) = working_directory {
+        cmd.current_dir(dir);
+    }
+
+    // Set system prompt via env var (Claude Code respects CLAUDE_SYSTEM_PROMPT)
+    cmd.env("CLAUDE_SYSTEM_PROMPT", &system_prompt);
+
+    let output = cmd.output().map_err(|e| format!("Failed to run claude: {}", e))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(stdout.trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Claude exited with error: {}", stderr.trim()))
+    }
+}
+
 // PTY input command (PRD-23)
 
 #[tauri::command]
