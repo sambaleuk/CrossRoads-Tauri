@@ -2,8 +2,10 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { TerminalSlot } from '../components/TerminalSlot';
 import { SlotTerminal } from '../components/SlotTerminal';
+import { SlotConfigDialog } from '../components/SlotConfigDialog';
 import { NeonBrain } from '../components/NeonBrain';
 import { SynapseConnections } from '../components/SynapseConnections';
+import { DashboardMetrics } from '../components/DashboardMetrics';
 import type { AgentSlot, AgentSlotStatus } from '../models';
 
 // Default 6 empty slots
@@ -51,6 +53,7 @@ function deriveBrainState(slots: AgentSlot[]): 'idle' | 'running' | 'merging' | 
 export function Dashboard() {
   const { slots: activeSlots, slotCosts, expandedSlotId, setExpandedSlotId } = useAppStore();
   const displaySlots = activeSlots.length > 0 ? activeSlots : defaultSlots;
+  const [configSlotIndex, setConfigSlotIndex] = useState<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState({ w: 900, h: 700 });
@@ -138,6 +141,19 @@ export function Dashboard() {
         <NeonBrain state={brainState} size={brainSize} />
       </div>
 
+      {/* Slot config dialog */}
+      {configSlotIndex !== null && (
+        <SlotConfigDialog
+          slotIndex={configSlotIndex}
+          branches={['main', 'feat/backend', 'feat/frontend', 'feat/testing']}
+          onConfirm={(config) => {
+            console.log('Slot configured:', configSlotIndex, config);
+            setConfigSlotIndex(null);
+          }}
+          onClose={() => setConfigSlotIndex(null)}
+        />
+      )}
+
       {/* 6 Hexagonal slots */}
       {displaySlots.slice(0, 6).map((slot, i) => {
         const pos = positions[i];
@@ -156,10 +172,14 @@ export function Dashboard() {
               slot={slot}
               cost={slotCosts[slot.id]}
               isConfigured={slot.status !== 'empty'}
+              onConfigure={() => setConfigSlotIndex(slot.slotIndex)}
             />
           </div>
         );
       })}
+
+      {/* Live metrics bar */}
+      <DashboardMetrics />
     </div>
   );
 }
