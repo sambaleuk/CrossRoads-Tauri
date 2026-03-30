@@ -1,189 +1,248 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../stores/appStore';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as api from '../services/api';
-import type { CockpitOrchestrationPlan, AdaptationAction } from '../models';
+
+// ── PRD-44: Live Consciousness Stream ──
+// The Brain tab renders the cockpit's live stream of thinking, decisions, and actions.
+
+interface CockpitEvent {
+  id: string;
+  eventType: 'thinking' | 'action' | 'decision' | 'loop' | 'subagent';
+  content: string;
+  timestamp: string;
+  metadata?: any;
+}
+
+interface CockpitEventPayload {
+  eventType: string;
+  content: string;
+  timestamp: string;
+  metadata?: any;
+}
+
+interface CockpitStatus {
+  isAlive: boolean;
+  processId?: number;
+  sessionId?: string;
+  startedAt?: string;
+  eventCount: number;
+}
+
+const MAX_ENTRIES = 200;
 
 export function CockpitBrainTab() {
-  const { projectPath, session } = useAppStore();
-  const [plan, setPlan] = useState<CockpitOrchestrationPlan | null>(null);
-  const [adaptations, setAdaptations] = useState<AdaptationAction[]>([]);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
+  const { projectPath } = useAppStore();
+  const [events, setEvents] = useState<CockpitEvent[]>([]);
+  const [status, setStatus] = useState<CockpitStatus | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const eventIdRef = useRef(0);
 
-  const fetchPlan = useCallback(async () => {
+  // Auto-scroll to bottom when new events arrive
+  useEffect(() => {
+    if (autoScroll && feedRef.current) {
+      feedRef.current.scrollTop = feedRef.current.scrollHeight;
+    }
+  }, [events, autoScroll]);
+
+  // Subscribe to cockpit events
+  useEffect(() => {
+    const unlisteners: UnlistenFn[] = [];
+
+    const eventTypes = [
+      'cockpit-thinking',
+      'cockpit-action',
+      'cockpit-decision',
+      'cockpit-loop',
+      'cockpit-subagent',
+    ];
+
+    for (const eventName of eventTypes) {
+      listen<CockpitEventPayload>(eventName, (event) => {
+        const newEvent: CockpitEvent = {
+          id: `ce-${++eventIdRef.current}`,
+          eventType: event.payload.eventType as CockpitEvent['eventType'],
+          content: event.payload.content,
+          timestamp: event.payload.timestamp,
+          metadata: event.payload.metadata,
+        };
+        setEvents(prev => {
+          const updated = [...prev, newEvent];
+          return updated.length > MAX_ENTRIES ? updated.slice(-MAX_ENTRIES) : updated;
+        });
+      }).then(unlisten => unlisteners.push(unlisten));
+    }
+
+    return () => {
+      unlisteners.forEach(fn => fn());
+    };
+  }, []);
+
+  // Poll cockpit status
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const s = await api.getCockpitStatus();
+        setStatus(s);
+      } catch { /* not available yet */ }
+    };
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleStart = useCallback(async () => {
     if (!projectPath) return;
     try {
-      const p = await api.getCockpitPlan(projectPath);
-      if (p) setPlan(p);
-    } catch { /* plan not generated yet */ }
+      await api.startCockpitSession(projectPath);
+    } catch { /* error handled by events */ }
   }, [projectPath]);
 
-  const fetchAdaptations = useCallback(async () => {
-    if (!session?.id) return;
+  const handleStop = useCallback(async () => {
     try {
-      const actions = await api.getAdaptationActions(session.id);
-      setAdaptations(actions);
-    } catch { /* no adaptations yet */ }
-  }, [session?.id]);
-
-  // Poll every 10s
-  useEffect(() => {
-    fetchPlan();
-    fetchAdaptations();
-    const interval = setInterval(() => {
-      fetchPlan();
-      fetchAdaptations();
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [fetchPlan, fetchAdaptations]);
-
-  const handleGeneratePlan = async () => {
-    if (!projectPath) return;
-    setLoading(true);
-    try {
-      const p = await api.generateCockpitPlan(projectPath, '{}');
-      setPlan(p);
+      await api.stopCockpitSession();
     } catch { /* error */ }
-    setLoading(false);
+  }, []);
+
+  // Detect scroll position for auto-scroll toggle
+  const handleScroll = () => {
+    if (!feedRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = feedRef.current;
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
   };
 
-  const toggleCategory = (cat: string) => {
-    setExpandedCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat);
-      else next.add(cat);
-      return next;
-    });
-  };
+  const isAlive = status?.isAlive ?? false;
 
-  if (!plan) {
+  // Empty state — cockpit not started
+  if (!isAlive && events.length === 0) {
     return (
       <div className="flex items-center justify-center h-full p-8">
         <div className="text-center space-y-3">
-          <div className="text-[10px] text-gray-500 font-mono">No orchestration plan generated</div>
+          <div className="relative">
+            <div className="w-12 h-12 mx-auto rounded-full bg-gray-800 flex items-center justify-center">
+              <div className="w-6 h-6 rounded-full bg-gray-700" />
+            </div>
+          </div>
+          <div className="text-[10px] text-gray-500 font-mono">Cockpit brain offline</div>
           <button
-            onClick={handleGeneratePlan}
-            disabled={loading || !projectPath}
+            onClick={handleStart}
+            disabled={!projectPath}
             className="text-[9px] font-mono px-3 py-1.5 rounded bg-neon-green/10 text-neon-green hover:bg-neon-green/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {loading ? 'Generating...' : 'Generate COP'}
+            Start Cockpit Brain
           </button>
         </div>
       </div>
     );
   }
 
-  const meta = plan.metaAgentConfig;
-  const specialists = plan.specialistTriggers;
-  const productions = plan.transverseProductions;
-
   return (
-    <div className="p-3 space-y-3 text-[9px] font-mono">
-      {/* COP Summary */}
-      <div className="p-2 rounded bg-gray-800/30 border border-gray-800 space-y-1.5">
-        <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider">COP Summary</div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="px-1.5 py-0.5 rounded bg-neon-purple/10 text-neon-purple text-[8px] font-bold uppercase">
-            {plan.projectType}
-          </span>
-          <span className="px-1.5 py-0.5 rounded bg-cyan-400/10 text-cyan-400 text-[8px] font-bold uppercase">
-            {plan.domain}
-          </span>
-        </div>
-        <div className="text-gray-400">{plan.marketContext}</div>
-      </div>
-
-      {/* META Agent Status */}
-      <div className="p-2 rounded bg-gray-800/30 border border-gray-800 space-y-1.5">
-        <div className="flex items-center gap-2">
-          <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider">META Agent</div>
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-emerald-400/50 shadow-sm" />
-          <span className="text-emerald-400">{meta.autonomyLevel}</span>
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {meta.capabilities.map(cap => (
-            <span key={cap} className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 text-[8px]">
-              {cap}
-            </span>
-          ))}
-        </div>
-        <div className="text-gray-600 text-[8px]">
-          Monitoring: {Math.round(meta.monitoringIntervalMs / 1000)}s interval
-        </div>
-      </div>
-
-      {/* Transverse Production / Deliverables */}
-      <div className="p-2 rounded bg-gray-800/30 border border-gray-800 space-y-1.5">
-        <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider">Deliverables</div>
-        {productions.map(prod => {
-          const isExpanded = expandedCategories.has(prod.category);
-          return (
-            <div key={prod.category}>
-              <button
-                onClick={() => toggleCategory(prod.category)}
-                className="flex items-center gap-1.5 w-full text-left hover:bg-gray-800/30 rounded px-1 py-0.5 transition-colors"
-              >
-                <span className="text-gray-600">{isExpanded ? '\u25BC' : '\u25B6'}</span>
-                <span className="text-gray-300">{prod.category}/</span>
-                <span className={`px-1 py-0.5 rounded text-[7px] ${
-                  prod.priority === 'high' ? 'bg-red-400/10 text-red-400' :
-                  prod.priority === 'medium' ? 'bg-amber-400/10 text-amber-400' :
-                  'bg-gray-800 text-gray-500'
-                }`}>{prod.priority}</span>
-                <span className="text-gray-600 ml-auto">{prod.deliverables.length}</span>
-              </button>
-              {isExpanded && (
-                <div className="ml-4 space-y-0.5 mt-0.5">
-                  {prod.deliverables.map(d => (
-                    <div key={d} className="flex items-center gap-1.5 text-gray-400 py-0.5">
-                      <span className="text-gray-600">{'\u2610'}</span>
-                      <span>{d}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Specialist Status */}
-      <div className="p-2 rounded bg-gray-800/30 border border-gray-800 space-y-1.5">
-        <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider">Specialists</div>
-        {specialists.length === 0 ? (
-          <div className="text-gray-600">No specialists triggered</div>
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800/50">
+        <span className={`w-2 h-2 rounded-full ${isAlive ? 'bg-neon-green animate-pulse shadow-neon-green/50 shadow-sm' : 'bg-gray-600'}`} />
+        <span className="text-[9px] font-mono text-gray-400">
+          {isAlive ? 'ALIVE' : 'OFFLINE'}
+        </span>
+        {status?.eventCount !== undefined && (
+          <span className="text-[8px] font-mono text-gray-600">{status.eventCount} events</span>
+        )}
+        <div className="flex-1" />
+        {isAlive ? (
+          <button onClick={handleStop} className="text-[8px] font-mono text-red-400 hover:bg-red-400/10 px-1.5 py-0.5 rounded">
+            Stop
+          </button>
         ) : (
-          specialists.map((sp, i) => (
-            <div key={i} className="flex items-center gap-2 py-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-              <span className="text-gray-300">{sp.specialist}</span>
-              <span className="text-gray-600 truncate flex-1">{sp.condition}</span>
-            </div>
-          ))
+          <button onClick={handleStart} className="text-[8px] font-mono text-neon-green hover:bg-neon-green/10 px-1.5 py-0.5 rounded">
+            Start
+          </button>
         )}
       </div>
 
-      {/* Adaptation Log */}
-      <div className="p-2 rounded bg-gray-800/30 border border-gray-800 space-y-1">
-        <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider">Adaptation Log</div>
-        {adaptations.length === 0 ? (
-          <div className="text-gray-600">No adaptations recorded</div>
-        ) : (
-          adaptations.slice(-10).map((a, i) => (
-            <div key={i} className="flex items-start gap-2 py-0.5">
-              <span className="text-neon-green shrink-0">{'\u25B8'}</span>
-              <span className="text-gray-400">{a.action}</span>
-              {a.targetSlot && <span className="text-gray-600">@{a.targetSlot}</span>}
-              <span className="text-gray-600 truncate">{a.reason}</span>
+      {/* Starting state */}
+      {isAlive && events.length === 0 && (
+        <div className="flex items-center justify-center p-8">
+          <div className="text-center space-y-2">
+            <div className="w-8 h-8 mx-auto rounded-full bg-neon-green/10 flex items-center justify-center animate-pulse">
+              <div className="w-4 h-4 rounded-full bg-neon-green/30" />
             </div>
-          ))
-        )}
+            <div className="text-[9px] text-gray-500 font-mono">Cockpit brain starting...</div>
+          </div>
+        </div>
+      )}
+
+      {/* Event feed */}
+      <div ref={feedRef} onScroll={handleScroll} className="flex-1 overflow-auto p-2 space-y-0.5">
+        {events.map(event => (
+          <EventEntry key={event.id} event={event} />
+        ))}
       </div>
 
-      {/* Deliverables Path */}
-      <div className="text-[8px] text-gray-600 px-1">
-        {plan.deliverablesPath}
-      </div>
+      {/* Auto-scroll indicator */}
+      {!autoScroll && events.length > 10 && (
+        <button
+          onClick={() => { setAutoScroll(true); feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: 'smooth' }); }}
+          className="absolute bottom-2 right-2 text-[8px] font-mono text-gray-400 bg-gray-800 px-2 py-1 rounded hover:bg-gray-700"
+        >
+          Auto-scroll
+        </button>
+      )}
     </div>
   );
+}
+
+function EventEntry({ event }: { event: CockpitEvent }) {
+  const time = new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  switch (event.eventType) {
+    case 'thinking':
+      return (
+        <div className="flex gap-1.5 py-0.5">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[9px] font-mono text-gray-500 italic leading-relaxed">{event.content}</span>
+        </div>
+      );
+
+    case 'action':
+      return (
+        <div className="flex items-center gap-1.5 py-0.5">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[8px] font-mono text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5 rounded">{event.content}</span>
+        </div>
+      );
+
+    case 'decision':
+      return (
+        <div className="flex gap-1.5 py-1 border-l-2 border-neon-green/40 pl-2">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[9px] font-mono text-neon-green font-bold leading-relaxed">{event.content}</span>
+        </div>
+      );
+
+    case 'loop':
+      return (
+        <div className="flex items-center gap-1.5 py-0.5">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-neon-purple animate-pulse" />
+          <span className="text-[8px] font-mono text-neon-purple/60">{event.content}</span>
+        </div>
+      );
+
+    case 'subagent':
+      return (
+        <div className="flex items-center gap-1.5 py-0.5">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[8px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">{event.content}</span>
+        </div>
+      );
+
+    default:
+      return (
+        <div className="flex gap-1.5 py-0.5">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[9px] font-mono text-gray-400">{event.content}</span>
+        </div>
+      );
+  }
 }

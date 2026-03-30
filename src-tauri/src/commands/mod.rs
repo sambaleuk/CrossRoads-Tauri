@@ -14,6 +14,7 @@ use crate::services::cockpit_brain;
 use crate::services::headless_launcher;
 use crate::services::claude_config_generator;
 use crate::services::memory_bridge;
+use crate::services::cockpit_session;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -624,6 +625,36 @@ pub fn inject_agent_memories(worktree_path: String, agent_name: String, agent_ty
 #[tauri::command]
 pub fn sync_agent_memories(worktree_path: String, agent_name: String, agent_type: String, session_id: String) -> Result<u32, String> {
     memory_bridge::sync_memories_back(&worktree_path, &agent_name, &agent_type, &session_id)
+}
+
+// PRD-44: Cockpit as Claude Code session
+
+#[tauri::command]
+pub fn start_cockpit_session(project_path: String) -> Result<cockpit_session::CockpitStatus, String> {
+    cockpit_session::start_session(&project_path)
+}
+
+#[tauri::command]
+pub fn stop_cockpit_session() -> Result<(), String> {
+    cockpit_session::stop_session()
+}
+
+#[tauri::command]
+pub fn resume_cockpit_session(project_path: String, session_id: String) -> Result<cockpit_session::CockpitStatus, String> {
+    cockpit_session::resume_session(&project_path, &session_id)
+}
+
+#[tauri::command]
+pub fn get_cockpit_status() -> cockpit_session::CockpitStatus {
+    cockpit_session::get_status()
+}
+
+#[tauri::command]
+pub fn generate_cockpit_agent_definition(project_path: String) -> Result<Vec<cockpit_brain::AgentDefinition>, String> {
+    let cop = cockpit_brain::generate_cop(&project_path, "{}")
+        .map_err(|e| format!("Failed to generate COP: {}", e))?;
+    let active_slots = Vec::new(); // Will be populated from DB at runtime
+    cockpit_brain::generate_cockpit_agent_definition(&project_path, &cop, &active_slots)
 }
 
 // SafeExecutor commands (PRD-19)

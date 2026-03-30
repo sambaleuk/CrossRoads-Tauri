@@ -374,3 +374,15 @@ export const injectAgentMemories = (worktreePath: string, agentName: string, age
   invoke<string>('inject_agent_memories', { worktreePath, agentName, agentType, sessionId });
 export const syncAgentMemories = (worktreePath: string, agentName: string, agentType: string, sessionId: string) =>
   invoke<number>('sync_agent_memories', { worktreePath, agentName, agentType, sessionId });
+
+// PRD-44: Cockpit as Claude Code session
+export const startCockpitSession = (projectPath: string) =>
+  invoke<any>('start_cockpit_session', { projectPath });
+export const stopCockpitSession = () =>
+  invoke<void>('stop_cockpit_session');
+export const resumeCockpitSession = (projectPath: string, sessionId: string) =>
+  invoke<any>('resume_cockpit_session', { projectPath, sessionId });
+export const getCockpitStatus = () =>
+  invoke<{ isAlive: boolean; processId?: number; sessionId?: string; startedAt?: string; eventCount: number }>('get_cockpit_status');
+export const generateCockpitAgentDefinition = (projectPath: string) =>
+  invoke<any[]>('generate_cockpit_agent_definition', { projectPath });

@@ -21,3 +21,4 @@ pub mod stream_parser;
 pub mod headless_launcher;
 pub mod claude_config_generator;
 pub mod memory_bridge;
+pub mod cockpit_session;

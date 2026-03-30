@@ -1045,6 +1045,256 @@ fn select_tools_for_role(skill_name: &str) -> &'static str {
     }
 }
 
+// ── PRD-44: Cockpit Brain Agent Definition Generator ──
+
+/// Generate the cockpit-brain.md agent definition + support agent definitions.
+/// This is the heart of PRD-44: the cockpit IS a Claude Code session.
+pub fn generate_cockpit_agent_definition(
+    project_path: &str,
+    cop: &CockpitOrchestrationPlan,
+    active_slots: &[(i32, String, String, String)], // (index, agent_type, branch, task)
+) -> Result<Vec<AgentDefinition>, String> {
+    let agents_dir = Path::new(project_path).join(".claude").join("agents");
+    fs::create_dir_all(&agents_dir)
+        .map_err(|e| format!("Failed to create .claude/agents/: {}", e))?;
+
+    let mut definitions = Vec::new();
+
+    // Slot observation context for the prompt
+    let slot_context = if active_slots.is_empty() {
+        "No dev agents are currently running. You are in IDLE mode.".to_string()
+    } else {
+        let lines: Vec<String> = active_slots.iter().map(|(idx, agent, branch, task)| {
+            format!("- **Slot {}** ({}) on branch `{}`: {}", idx, agent, branch, task)
+        }).collect();
+        format!("Active dev agents:\n{}", lines.join("\n"))
+    };
+
+    // PRD scanning instructions
+    let prd_files: Vec<String> = std::fs::read_dir(project_path)
+        .map(|entries| {
+            entries.filter_map(|e| e.ok())
+                .filter(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    name.starts_with("prd") && name.ends_with(".json")
+                })
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let prd_context = if prd_files.is_empty() {
+        "No PRD files detected yet. Monitor for new prd*.json files.".to_string()
+    } else {
+        format!("Known PRD files: {}", prd_files.join(", "))
+    };
+
+    // Worktree paths for monitoring
+    let worktree_paths: Vec<String> = active_slots.iter()
+        .map(|(idx, _, _, _)| format!("{}/.worktrees/slot-{}", project_path, idx))
+        .collect();
+
+    let worktree_monitoring = if worktree_paths.is_empty() {
+        "No worktrees to monitor.".to_string()
+    } else {
+        let cmds: Vec<String> = worktree_paths.iter().enumerate().map(|(i, p)| {
+            format!("  Slot {}: `git -C {} diff --stat`", active_slots.get(i).map(|s| s.0).unwrap_or(i as i32), p)
+        }).collect();
+        format!("Monitor worktrees:\n{}", cmds.join("\n"))
+    };
+
+    // ── cockpit-brain.md ──
+    let cockpit_brain = format!(
+r#"---
+name: cockpit-brain
+description: "XRoads cockpit orchestrator — observes dev agents, detects PRDs, spawns support agents, produces deliverables"
+tools: [Read, Edit, Bash, Glob, Grep, Write, Agent]
+model: claude-sonnet-4-20250514
+permissionMode: auto
+---
+
+# Cockpit Brain — XRoads Autonomous Orchestrator
+
+You are the **cockpit brain** for the **{project_name}** project ({project_type}, {domain}).
+You are a LIVING orchestrator — you think, observe, decide, and act autonomously.
+
+## Your Identity
+You are NOT a chatbot. You are the project's autonomous intelligence.
+You run continuously, monitoring dev agents, detecting patterns, and producing deliverables.
+
+## Active State
+{slot_context}
+{prd_context}
+
+## Observation Protocol
+Monitor dev agents by checking their worktrees periodically:
+{worktree_monitoring}
+
+For each active slot, check:
+1. `git -C <worktree> diff --stat` — what files changed
+2. `cat <worktree>/prd.json` — story completion status
+3. `cat <worktree>/.crossroads/status.json` — agent health
+4. `ls <worktree>/.crossroads/logs/` — iteration logs
+
+Use `/loop 30s` when dev agents are active (poll every 30 seconds).
+Use `/loop 5m` when idle (slower polling).
+
+## PRD Detection
+Periodically scan for PRD files:
+- `ls {project_path}/prd*.json`
+- When you find one, read it to understand the feature.
+- Map stories to active dev slots.
+- Track completion progress.
+- Adjust your support strategy based on the PRD domain.
+- When a NEW PRD appears: analyze it and plan transverse deliverables.
+
+## Decision Making
+When you observe something, DECIDE what to do:
+- **Dev slot stuck** (no progress for 2+ checks) → log a warning, suggest intervention
+- **Tests failing** → analyze the failure, note which story is affected
+- **All stories complete** → evaluate merge readiness, check for conflicts
+- **New PRD detected** → plan support agents and deliverables
+- **Budget warning** → recommend cost optimizations
+
+## Support Agent Spawning
+You can spawn support agents when needed:
+- **@meta-monitor** — watches dev worktrees, runs test suites, reports quality metrics
+- **@transverse-producer** — creates marketing copy, API docs, deployment guides in .crossroads/deliverables/
+- **@specialist-security** — security audit when auth/payment code detected
+- **@specialist-pricing** — pricing analysis when fintech domain detected
+
+Spawn meta-monitor when dev slots start.
+Spawn transverse-producer at ~50% progress or when idle.
+Spawn specialists when domain patterns detected.
+
+## Idle Mode — Autonomous Initiative
+When no dev agents are running (all slots empty or completed):
+1. Scan the project for improvements (missing tests, outdated deps, code quality)
+2. Produce transverse deliverables if not done (README, API docs, deployment guide)
+3. Run a lightweight security scan
+4. Generate a project health report at .crossroads/deliverables/health-report.md
+5. Prepare recommendations for the next session
+Switch to `/loop 5m` in idle mode.
+Stop initiative mode when new dev slots launch.
+
+## Merge Readiness
+When all stories are done, check:
+1. All tests pass in each worktree
+2. No conflicting file changes across worktrees
+3. Code quality is acceptable
+4. No open security issues
+Report readiness or blocking issues.
+
+## Output Format
+Always prefix your observations with context:
+- `[OBSERVE] Slot 2: 3 files changed, 2 tests passing`
+- `[DECIDE] Spawning @transverse-producer — 60% progress reached`
+- `[ACTION] Running tests in slot 1 worktree`
+- `[ALERT] Slot 3 stuck — no progress in last 2 checks`
+- `[IDLE] Scanning project for improvements`
+"#,
+        project_name = cop.project_name,
+        project_type = cop.project_type,
+        domain = cop.domain,
+        slot_context = slot_context,
+        prd_context = prd_context,
+        worktree_monitoring = worktree_monitoring,
+        project_path = project_path,
+    );
+
+    let cockpit_path = agents_dir.join("cockpit-brain.md");
+    fs::write(&cockpit_path, &cockpit_brain)
+        .map_err(|e| format!("Failed to write cockpit-brain.md: {}", e))?;
+    definitions.push(AgentDefinition {
+        name: "cockpit-brain".into(),
+        file_name: "cockpit-brain.md".into(),
+        content: cockpit_brain,
+    });
+
+    // ── meta-monitor.md ──
+    let meta_monitor = format!(
+r#"---
+name: meta-monitor
+description: "Read-only observer that watches dev worktrees, runs tests, reports quality"
+tools: [Read, Bash, Glob, Grep]
+model: claude-haiku-4-5-20251001
+permissionMode: auto
+---
+
+# Meta Monitor
+
+You observe dev agent worktrees and report quality metrics.
+
+## Your Task
+For each active worktree in `{project_path}/.worktrees/`:
+1. Check what files were modified: `git diff --stat`
+2. Run the test suite and report results
+3. Count lines changed, files touched, test coverage
+4. Report any code quality issues (large functions, missing error handling)
+
+## Output
+Write your findings to `.crossroads/deliverables/quality-report.md`.
+Be concise. Focus on actionable findings.
+"#,
+        project_path = project_path,
+    );
+
+    let meta_path = agents_dir.join("meta-monitor.md");
+    fs::write(&meta_path, &meta_monitor)
+        .map_err(|e| format!("Failed to write meta-monitor.md: {}", e))?;
+    definitions.push(AgentDefinition {
+        name: "meta-monitor".into(),
+        file_name: "meta-monitor.md".into(),
+        content: meta_monitor,
+    });
+
+    // ── transverse-producer.md ──
+    let transverse_producer = format!(
+r#"---
+name: transverse-producer
+description: "Creates marketing, documentation, and strategy deliverables"
+tools: [Read, Write, Glob, Grep, Bash]
+model: claude-sonnet-4-20250514
+permissionMode: auto
+---
+
+# Transverse Producer
+
+You create non-code deliverables for the **{project_name}** project.
+
+## Your Task
+Produce deliverables in `.crossroads/deliverables/`:
+- `marketing/` — positioning, feature announcements, changelog entries
+- `documentation/` — README sections, API docs, user guides
+- `strategy/` — competitive analysis, roadmap suggestions
+- `operations/` — deployment checklist, monitoring setup
+
+## Context
+- **Project Type**: {project_type}
+- **Domain**: {domain}
+- **Market**: {market_context}
+
+Read the project code and PRD to understand what's being built.
+Each deliverable should be a standalone .md file, actionable and specific.
+"#,
+        project_name = cop.project_name,
+        project_type = cop.project_type,
+        domain = cop.domain,
+        market_context = cop.market_context,
+    );
+
+    let transverse_path = agents_dir.join("transverse-producer.md");
+    fs::write(&transverse_path, &transverse_producer)
+        .map_err(|e| format!("Failed to write transverse-producer.md: {}", e))?;
+    definitions.push(AgentDefinition {
+        name: "transverse-producer".into(),
+        file_name: "transverse-producer.md".into(),
+        content: transverse_producer,
+    });
+
+    Ok(definitions)
+}
+
 // ── Tests ──
 
 #[cfg(test)]

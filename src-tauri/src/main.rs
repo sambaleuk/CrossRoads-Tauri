@@ -114,6 +114,12 @@ fn main() {
             commands::generate_all_claude_config,
             commands::inject_agent_memories,
             commands::sync_agent_memories,
+            // PRD-44: Cockpit as Claude Code session
+            commands::start_cockpit_session,
+            commands::stop_cockpit_session,
+            commands::resume_cockpit_session,
+            commands::get_cockpit_status,
+            commands::generate_cockpit_agent_definition,
             // PRD-19: SafeExecutor
             commands::detect_dangerous_ops,
             commands::safe_trigger_gate,

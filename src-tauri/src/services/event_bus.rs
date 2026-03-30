@@ -1,5 +1,5 @@
 use once_cell::sync::OnceCell;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -233,6 +233,69 @@ pub struct OrchestrationPayload {
 /// Emit an orchestration update event
 pub fn emit_orchestration(payload: &OrchestrationPayload) {
     emit(EVENT_ORCHESTRATION, payload);
+}
+
+// ── PRD-44: Cockpit consciousness events ──
+
+pub const EVENT_COCKPIT_THINKING: &str = "cockpit-thinking";
+pub const EVENT_COCKPIT_ACTION: &str = "cockpit-action";
+pub const EVENT_COCKPIT_DECISION: &str = "cockpit-decision";
+pub const EVENT_COCKPIT_LOOP: &str = "cockpit-loop";
+pub const EVENT_COCKPIT_SUBAGENT: &str = "cockpit-subagent";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CockpitEventPayload {
+    pub event_type: String,
+    pub content: String,
+    pub timestamp: String,
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Emit a cockpit consciousness event
+pub fn emit_cockpit_event(event_type: &str, content: &str, metadata: Option<serde_json::Value>) {
+    let event_name = match event_type {
+        "thinking" => EVENT_COCKPIT_THINKING,
+        "action" => EVENT_COCKPIT_ACTION,
+        "decision" => EVENT_COCKPIT_DECISION,
+        "loop" => EVENT_COCKPIT_LOOP,
+        "subagent" => EVENT_COCKPIT_SUBAGENT,
+        _ => EVENT_COCKPIT_THINKING,
+    };
+    let payload = CockpitEventPayload {
+        event_type: event_type.to_string(),
+        content: content.to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        metadata,
+    };
+    emit(event_name, &payload);
+    // Also route to MCP logs panel
+    emit_log("info", &format!("cockpit-{}", event_type), content, None);
+}
+
+/// Categorize cockpit stream text into event types
+pub fn categorize_cockpit_text(text: &str) -> &'static str {
+    let lower = text.to_lowercase();
+    // Decision keywords
+    if lower.contains("[decide]") || lower.contains("[alert]")
+        || lower.contains("spawning") || lower.contains("launching")
+        || lower.contains("detected") || lower.contains("switching")
+        || lower.contains("merge readiness")
+    {
+        return "decision";
+    }
+    // Loop/observation keywords
+    if lower.contains("[observe]") || lower.contains("[idle]")
+        || lower.contains("/loop") || lower.contains("polling")
+    {
+        return "loop";
+    }
+    // Action keywords
+    if lower.contains("[action]") {
+        return "action";
+    }
+    // Default: thinking
+    "thinking"
 }
 
 // ── Core emit helper ──
