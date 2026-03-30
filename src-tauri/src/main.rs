@@ -124,6 +124,7 @@ fn main() {
             commands::detect_orphaned_worktrees,
             commands::cleanup_worktrees,
             commands::detect_stale_sessions,
+            commands::cleanup_stale_sessions,
             // PRD-23: Terminal PTY input
             commands::run_claude_cli,
             commands::send_pty_input,

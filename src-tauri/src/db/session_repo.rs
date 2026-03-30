@@ -84,6 +84,32 @@ pub fn active_session_for_path(project_path: &str) -> Result<Option<CockpitSessi
     })
 }
 
+/// Close any non-closed sessions for a project path (cleanup after crash/force-quit).
+/// Returns the number of sessions that were closed.
+pub fn cleanup_stale_sessions(project_path: &str) -> Result<usize> {
+    with_db(|conn| {
+        let now = chrono::Utc::now().to_rfc3339();
+        let count = conn.execute(
+            "UPDATE cockpit_session SET status = 'closed', updatedAt = ?1 WHERE projectPath = ?2 AND status != 'closed'",
+            params![now, project_path],
+        )?;
+        Ok(count)
+    })
+}
+
+/// Close any non-closed sessions for a project path EXCEPT a specific session ID.
+/// Used during activation to clean up stale siblings without affecting the current session.
+pub fn cleanup_stale_sessions_except(project_path: &str, except_id: &str) -> Result<usize> {
+    with_db(|conn| {
+        let now = chrono::Utc::now().to_rfc3339();
+        let count = conn.execute(
+            "UPDATE cockpit_session SET status = 'closed', updatedAt = ?1 WHERE projectPath = ?2 AND status != 'closed' AND id != ?3",
+            params![now, project_path, except_id],
+        )?;
+        Ok(count)
+    })
+}
+
 pub fn fetch_all_sessions() -> Result<Vec<CockpitSession>> {
     with_db(|conn| {
         let mut stmt = conn.prepare(

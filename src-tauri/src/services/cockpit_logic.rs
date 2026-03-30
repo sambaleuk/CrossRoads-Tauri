@@ -298,6 +298,10 @@ pub fn activate_session(session_id: &str) -> Result<ChairmanOutput, String> {
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Session {} not found", session_id))?;
 
+    // Clean up any stale sessions for this project (from previous crashes)
+    // excluding the current session which we're about to activate
+    let _ = session_repo::cleanup_stale_sessions_except(&session.project_path, session_id);
+
     transition(session_id, "activate")?;
 
     // 2. Read project context

@@ -34,7 +34,18 @@ static LIFECYCLE_MANAGER: Lazy<Mutex<agent_lifecycle::AgentLifecycleManager>> = 
 // Session commands
 #[tauri::command]
 pub fn create_session(project_path: String) -> Result<CockpitSession, String> {
+    // If there's already an active (non-closed) session for this path, return it
+    if let Ok(Some(existing)) = session_repo::active_session_for_path(&project_path) {
+        return Ok(existing);
+    }
+    // Clean up any stale sessions from previous crashes before creating
+    let _ = session_repo::cleanup_stale_sessions(&project_path);
     session_repo::create_session(&project_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cleanup_stale_sessions(project_path: String) -> Result<usize, String> {
+    session_repo::cleanup_stale_sessions(&project_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
