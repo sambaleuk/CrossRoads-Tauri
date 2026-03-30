@@ -10,6 +10,7 @@ use crate::services::safe_executor;
 use crate::services::skill_system;
 use crate::services::session_persistence;
 use crate::services::{org_chart, budget_engine, heartbeat_engine, learning_engine, conflict_prevention};
+use crate::services::cockpit_brain;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -887,4 +888,42 @@ pub fn analyze_conflicts_before_dispatch(
     );
 
     Ok(conflict_prevention::analyze_dispatch_plan(&parsed_stories, &file_predictions))
+}
+
+// ── Cockpit Brain: Autonomous Orchestration ──
+
+#[tauri::command]
+pub fn generate_cockpit_plan(project_path: String, prd_json: String) -> Result<cockpit_brain::CockpitOrchestrationPlan, String> {
+    cockpit_brain::generate_cop(&project_path, &prd_json)
+}
+
+#[tauri::command]
+pub fn get_cockpit_plan(project_path: String) -> Result<Option<cockpit_brain::CockpitOrchestrationPlan>, String> {
+    cockpit_brain::get_cop(&project_path)
+}
+
+#[tauri::command]
+pub fn generate_brain_meta_skill(project_path: String) -> Result<String, String> {
+    let cop = cockpit_brain::get_cop(&project_path)?
+        .ok_or_else(|| "No COP found — run generate_cockpit_plan first".to_string())?;
+    Ok(cockpit_brain::generate_meta_skill(&cop))
+}
+
+#[tauri::command]
+pub fn generate_brain_transverse_skill(project_path: String, category: String) -> Result<String, String> {
+    let cop = cockpit_brain::get_cop(&project_path)?
+        .ok_or_else(|| "No COP found — run generate_cockpit_plan first".to_string())?;
+    cockpit_brain::generate_transverse_skill(&cop, &category)
+}
+
+#[tauri::command]
+pub fn create_brain_deliverables_structure(project_path: String) -> Result<(), String> {
+    let cop = cockpit_brain::get_cop(&project_path)?
+        .ok_or_else(|| "No COP found — run generate_cockpit_plan first".to_string())?;
+    cockpit_brain::create_deliverables_structure(&project_path, &cop)
+}
+
+#[tauri::command]
+pub fn get_brain_adaptation_actions(session_id: String) -> Result<Vec<cockpit_brain::AdaptationAction>, String> {
+    cockpit_brain::get_adaptation_actions(&session_id)
 }

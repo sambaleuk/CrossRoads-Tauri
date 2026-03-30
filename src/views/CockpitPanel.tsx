@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { StatusBadge } from '../components/StatusBadge';
 import { CostBadge, SessionCostSummary } from '../components/CostBadge';
+import { CockpitBrainTab } from '../components/CockpitBrainTab';
 import * as api from '../services/api';
 import type { AgentSlot, ExecutionGate, UsageSummary, OrgRole, BudgetStatus, TrustScore } from '../models';
 
-type CockpitTab = 'slots' | 'org' | 'budget' | 'health' | 'audit' | 'trust';
+type CockpitTab = 'brain' | 'slots' | 'org' | 'budget' | 'health' | 'audit' | 'trust';
 
 export function CockpitPanel() {
   const { session, slots, sessionCost, slotCosts } = useAppStore();
-  const [tab, setTab] = useState<CockpitTab>('slots');
+  const [tab, setTab] = useState<CockpitTab>('brain');
   const [gates, setGates] = useState<ExecutionGate[]>([]);
   const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
@@ -66,6 +67,7 @@ export function CockpitPanel() {
   };
 
   const tabs: { key: CockpitTab; label: string }[] = [
+    { key: 'brain', label: 'Brain' },
     { key: 'slots', label: 'Slots' },
     { key: 'org', label: 'Org' },
     { key: 'budget', label: 'Budget' },
@@ -148,6 +150,7 @@ export function CockpitPanel() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto">
+        {tab === 'brain' && <CockpitBrainTab />}
         {tab === 'slots' && <SlotsTab slots={slots} slotCosts={slotCosts} session={session} />}
         {tab === 'org' && <OrgTab roles={orgRoles} />}
         {tab === 'budget' && <BudgetTab status={budgetStatus} sessionCost={sessionCost} />}

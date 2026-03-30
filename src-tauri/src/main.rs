@@ -173,6 +173,13 @@ fn main() {
             commands::should_auto_merge,
             // P0-3: Predictive Conflict Prevention
             commands::analyze_conflicts_before_dispatch,
+            // Cockpit Brain: Autonomous Orchestration
+            commands::generate_cockpit_plan,
+            commands::get_cockpit_plan,
+            commands::generate_brain_meta_skill,
+            commands::generate_brain_transverse_skill,
+            commands::create_brain_deliverables_structure,
+            commands::get_brain_adaptation_actions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

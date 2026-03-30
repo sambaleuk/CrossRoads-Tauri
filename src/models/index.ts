@@ -630,3 +630,34 @@ export interface ConflictPreventionResult {
   riskyPairs: Array<{ storyA: string; storyB: string; risk: string }>;
   recommendedResequencing: string[][];
 }
+
+// Cockpit Brain (PRD-42)
+export interface CockpitOrchestrationPlan {
+  projectName: string;
+  projectType: string;
+  domain: string;
+  marketContext: string;
+  transverseProductions: Array<{
+    category: string;
+    deliverables: string[];
+    priority: string;
+  }>;
+  specialistTriggers: Array<{
+    condition: string;
+    specialist: string;
+    reason: string;
+  }>;
+  metaAgentConfig: {
+    capabilities: string[];
+    monitoringIntervalMs: number;
+    autonomyLevel: string;
+  };
+  deliverablesPath: string;
+  createdAt: string;
+}
+
+export interface AdaptationAction {
+  action: string;
+  targetSlot?: string;
+  reason: string;
+}

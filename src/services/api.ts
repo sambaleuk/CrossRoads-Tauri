@@ -10,7 +10,8 @@ import type {
   OrgRole, OrgRoleNode, BudgetConfig, BudgetStatus, CostProjection, BudgetAlert,
   HeartbeatConfig, ScheduledRun, Workspace, AgentRuntimeConfig,
   ConfigSnapshot, PerformanceProfile, AgentRecommendation, ConflictPrediction,
-  AgentMemory, TrustScore, ConflictPreventionResult
+  AgentMemory, TrustScore, ConflictPreventionResult,
+  CockpitOrchestrationPlan, AdaptationAction
 } from '../models';
 
 // Session
@@ -337,3 +338,17 @@ export const shouldAutoMerge = (agentType: string, domain: string) =>
 // P0: Conflict Prevention
 export const analyzeConflictsBeforeDispatch = (stories: Array<{id: string; patterns: string[]}>) =>
   invoke<ConflictPreventionResult>('analyze_conflicts_before_dispatch', { stories });
+
+// Cockpit Brain (PRD-42)
+export const generateCockpitPlan = (projectPath: string, prdJson: string) =>
+  invoke<CockpitOrchestrationPlan>('generate_cockpit_plan', { projectPath, prdJson });
+export const getCockpitPlan = (projectPath: string) =>
+  invoke<CockpitOrchestrationPlan | null>('get_cockpit_plan', { projectPath });
+export const generateMetaSkill = (projectPath: string) =>
+  invoke<string>('generate_meta_skill', { projectPath });
+export const generateTransverseSkill = (projectPath: string, category: string) =>
+  invoke<string>('generate_transverse_skill', { projectPath, category });
+export const createDeliverablesStructure = (projectPath: string) =>
+  invoke<void>('create_deliverables_structure', { projectPath });
+export const getAdaptationActions = (sessionId: string) =>
+  invoke<AdaptationAction[]>('get_adaptation_actions', { sessionId });
