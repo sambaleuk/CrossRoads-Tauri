@@ -6,6 +6,7 @@ import { GitPanel } from './views/GitPanel';
 import { CockpitPanel } from './views/CockpitPanel';
 import { CommandPalette, useCommandPalette } from './components/CommandPalette';
 import { ReviewOverlay } from './components/ReviewOverlay';
+import { IntelligencePanel } from './views/IntelligencePanel';
 import { useAppStore } from './stores/appStore';
 import { initEventListeners } from './services/eventBus';
 
@@ -13,6 +14,7 @@ export default function App() {
   const { showCockpit, showInspector, showChat, session, slots, sessionCost } = useAppStore();
   const commandPalette = useCommandPalette();
   const [showReview, setShowReview] = useState(false);
+  const [showIntelligence, setShowIntelligence] = useState(false);
   const prevSessionStatus = useRef(session?.status);
 
   // Initialize event listeners on mount
@@ -43,6 +45,7 @@ export default function App() {
           case 'c': e.preventDefault(); useAppStore.getState().toggleCockpit(); break;
           case 'i': e.preventDefault(); useAppStore.getState().toggleInspector(); break;
           case 'o': e.preventDefault(); useAppStore.getState().toggleChat(); break;
+          case 'l': e.preventDefault(); setShowIntelligence(p => !p); break;
         }
       }
     };
@@ -68,6 +71,8 @@ export default function App() {
       <BottomBar />
 
       {commandPalette.isOpen && <CommandPalette onClose={commandPalette.close} />}
+
+      {showIntelligence && <IntelligencePanel onClose={() => setShowIntelligence(false)} />}
 
       {showReview && session && (
         <ReviewOverlay
