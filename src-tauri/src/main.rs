@@ -202,6 +202,9 @@ fn main() {
             commands::save_chat_message,
             commands::fetch_chat_history,
             commands::get_wake_context,
+            // Suite System
+            commands::list_suites,
+            commands::get_suite,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

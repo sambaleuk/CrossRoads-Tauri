@@ -142,9 +142,9 @@ export function CockpitBrainTab() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800/50">
+    <div className="flex flex-col flex-1 min-h-0 h-full">
+      {/* Header — compact to maximize stream space */}
+      <div className="flex items-center gap-2 px-3 py-1 border-b border-gray-800/50 shrink-0">
         <span className={`w-2 h-2 rounded-full ${isAlive ? 'bg-neon-green animate-pulse shadow-neon-green/50 shadow-sm' : 'bg-gray-600'}`} />
         <span className="text-[9px] font-mono text-gray-400">
           {isAlive ? 'ALIVE' : 'OFFLINE'}
@@ -176,8 +176,8 @@ export function CockpitBrainTab() {
         </div>
       )}
 
-      {/* Event feed */}
-      <div ref={feedRef} onScroll={handleScroll} className="flex-1 overflow-auto p-2 space-y-0.5">
+      {/* Event feed — takes maximum available height */}
+      <div ref={feedRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-auto p-2 space-y-0.5">
         {events.map(event => (
           <EventEntry key={event.id} event={event} />
         ))}

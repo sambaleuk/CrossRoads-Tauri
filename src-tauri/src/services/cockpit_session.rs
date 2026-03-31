@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{session_repo, slot_repo, chat_history_repo};
 use crate::services::{event_bus, stream_parser, cli_detector, cockpit_brain};
+use crate::models::suite::builtin_suites;
 
 // ── PRD-44: Cockpit Session Manager ──
 //
@@ -590,6 +591,16 @@ fn build_cockpit_prompt(
     active_slots: &[(i32, String, String, String)],
     wake_context: &str,
 ) -> String {
+    build_cockpit_prompt_with_suite(project_path, cop, active_slots, wake_context, None)
+}
+
+fn build_cockpit_prompt_with_suite(
+    project_path: &str,
+    cop: &cockpit_brain::CockpitOrchestrationPlan,
+    active_slots: &[(i32, String, String, String)],
+    wake_context: &str,
+    suite_id: Option<&str>,
+) -> String {
     let slot_desc = if active_slots.is_empty() {
         "No dev agents are currently running. Enter idle/initiative mode.".to_string()
     } else {
@@ -616,13 +627,44 @@ Verify that the previous state still holds before acting on it."#,
         )
     };
 
+    // Suite awareness: inject active suite roles and phases into the prompt
+    let suite_section = {
+        let sid = suite_id.unwrap_or("developer");
+        let suites = builtin_suites();
+        if let Some(suite) = suites.iter().find(|s| s.id == sid) {
+            let roles_desc: Vec<String> = suite.roles.iter().map(|r| {
+                format!("- {} ({}): {} [skills: {}]",
+                    r.name, r.id, r.description, r.skill_ids.join(", "))
+            }).collect();
+            let phases_desc: Vec<String> = suite.phases.iter().map(|p| {
+                format!("- {} ({}): {} [roles: {}, transition: {}]",
+                    p.name, p.id, p.description, p.role_ids.join(", "), p.transition_condition)
+            }).collect();
+            format!(
+r#"
+
+## Active Suite: {} ({})
+{}
+
+### Available Roles
+{}
+
+### Orchestration Phases
+{}"#,
+                suite.name, suite.id, suite.description,
+                roles_desc.join("\n"), phases_desc.join("\n"))
+        } else {
+            String::new()
+        }
+    };
+
     format!(
 r#"You are the cockpit brain for {project_name} ({project_type}, {domain}).
 
 Current state:
 {slot_desc}
 
-Project path: {project_path}{wake_section}
+Project path: {project_path}{suite_section}{wake_section}
 
 Start monitoring. Use your observation protocol to check dev agent progress.
 If no agents are running, enter idle mode and produce deliverables.
@@ -632,6 +674,7 @@ Use /loop 30s for active monitoring, /loop 5m for idle mode."#,
         domain = cop.domain,
         slot_desc = slot_desc,
         project_path = project_path,
+        suite_section = suite_section,
         wake_section = wake_section,
     )
 }

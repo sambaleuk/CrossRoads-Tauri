@@ -663,6 +663,36 @@ export interface AdaptationAction {
   reason: string;
 }
 
+// Suite System
+export interface Suite {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  accentHex: string;
+  glowHex: string;
+  roles: SuiteRole[];
+  phases: SuitePhase[];
+}
+
+export interface SuiteRole {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  skillIds: string[];
+  agentPreference?: string;
+  actionType: string;
+}
+
+export interface SuitePhase {
+  id: string;
+  name: string;
+  description: string;
+  roleIds: string[];
+  transitionCondition: string;
+}
+
 // Chat History + Wake Prompts
 export interface ChatHistoryEntry {
   id: string;

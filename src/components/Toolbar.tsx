@@ -4,6 +4,7 @@ import { SessionCostSummary } from './CostBadge';
 import { SettingsPanel } from '../views/SettingsPanel';
 import { SkillsBrowser } from '../views/SkillsBrowser';
 import { StartSessionDialog } from './StartSessionDialog';
+import { SuiteSwitcher } from './SuiteSwitcher';
 import * as api from '../services/api';
 import { open } from '@tauri-apps/plugin-dialog';
 
@@ -73,6 +74,11 @@ export function Toolbar() {
           className="px-2 py-1 rounded text-[10px] font-mono text-neon-green bg-neon-green/10 border border-neon-green/30 hover:bg-neon-green/20 transition-colors">
           Start Session
         </button>
+
+        <div className="w-px h-4 bg-gray-700" />
+
+        {/* Suite Switcher */}
+        <SuiteSwitcher />
 
         <div className="w-px h-4 bg-gray-700" />
 

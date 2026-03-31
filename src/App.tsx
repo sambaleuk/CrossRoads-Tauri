@@ -8,6 +8,7 @@ import { CommandPalette, useCommandPalette } from './components/CommandPalette';
 import { ReviewOverlay } from './components/ReviewOverlay';
 import { IntelligencePanel } from './views/IntelligencePanel';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher';
+import { SuiteGlowBorder } from './components/SuiteGlowBorder';
 import { useAppStore } from './stores/appStore';
 import { initEventListeners } from './services/eventBus';
 
@@ -55,6 +56,7 @@ export default function App() {
   }, []);
 
   return (
+    <SuiteGlowBorder>
     <div className="h-screen w-screen bg-gray-950 text-gray-100 flex flex-col overflow-hidden">
       <Toolbar />
 
@@ -86,5 +88,6 @@ export default function App() {
         />
       )}
     </div>
+    </SuiteGlowBorder>
   );
 }

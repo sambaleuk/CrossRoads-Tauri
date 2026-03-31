@@ -33,6 +33,10 @@ interface AppState {
   expandedSlotId: string | null;
   setExpandedSlotId: (id: string | null) => void;
   toggleExpandedSlot: (id: string) => void;
+
+  // Suite system
+  activeSuiteId: string;
+  setActiveSuiteId: (id: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -61,4 +65,7 @@ export const useAppStore = create<AppState>((set) => ({
   expandedSlotId: null,
   setExpandedSlotId: (id) => set({ expandedSlotId: id }),
   toggleExpandedSlot: (id) => set((s) => ({ expandedSlotId: s.expandedSlotId === id ? null : id })),
+
+  activeSuiteId: 'developer',
+  setActiveSuiteId: (id) => set({ activeSuiteId: id }),
 }));

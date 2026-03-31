@@ -7,3 +7,4 @@ pub mod execution_gate;
 pub mod cost_event;
 pub mod worktree;
 pub mod orchestration_record;
+pub mod suite;

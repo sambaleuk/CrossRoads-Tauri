@@ -16,6 +16,7 @@ use crate::services::claude_config_generator;
 use crate::services::memory_bridge;
 use crate::services::cockpit_session;
 use crate::models::{cockpit_session::CockpitSession, agent_slot::AgentSlot, cost_event::{CostEvent, UsageSummary}, execution_gate::ExecutionGate, agent_message::AgentMessage, metier_skill::MetierSkill};
+use crate::models::suite::{Suite, builtin_suites};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
 use tokio::sync::mpsc;
@@ -1159,4 +1160,16 @@ pub fn fetch_chat_history(session_id: String, limit: Option<i64>) -> Result<Vec<
 pub fn get_wake_context(session_id: Option<String>) -> Result<String, String> {
     chat_history_repo::build_wake_context(session_id.as_deref())
         .map_err(|e| e.to_string())
+}
+
+// Suite System
+
+#[tauri::command]
+pub fn list_suites() -> Vec<Suite> {
+    builtin_suites()
+}
+
+#[tauri::command]
+pub fn get_suite(suite_id: String) -> Option<Suite> {
+    builtin_suites().into_iter().find(|s| s.id == suite_id)
 }

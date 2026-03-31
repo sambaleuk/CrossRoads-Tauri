@@ -4,15 +4,14 @@ import { StatusBadge } from '../components/StatusBadge';
 import { CostBadge, SessionCostSummary } from '../components/CostBadge';
 import { CockpitBrainTab } from '../components/CockpitBrainTab';
 import * as api from '../services/api';
-import type { AgentSlot, ExecutionGate, UsageSummary, OrgRole, BudgetStatus, TrustScore } from '../models';
+import type { AgentSlot, ExecutionGate, UsageSummary, BudgetStatus, TrustScore } from '../models';
 
-type CockpitTab = 'brain' | 'slots' | 'org' | 'budget' | 'health' | 'audit' | 'trust';
+type CockpitTab = 'brain' | 'slots' | 'budget' | 'health' | 'audit' | 'trust';
 
 export function CockpitPanel() {
   const { session, slots, sessionCost, slotCosts } = useAppStore();
   const [tab, setTab] = useState<CockpitTab>('brain');
   const [gates, setGates] = useState<ExecutionGate[]>([]);
-  const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
   const [trustScores, setTrustScores] = useState<TrustScore[]>([]);
 
@@ -33,8 +32,6 @@ export function CockpitPanel() {
       }
       setGates(allGates);
 
-      // Org roles
-      try { setOrgRoles(await api.fetchOrgRoles(session.id)); } catch {}
       // Budget
       if (slots[0]) {
         try { setBudgetStatus(await api.checkBudget(slots[0].id)); } catch {}
@@ -69,7 +66,6 @@ export function CockpitPanel() {
   const tabs: { key: CockpitTab; label: string }[] = [
     { key: 'brain', label: 'Brain' },
     { key: 'slots', label: 'Slots' },
-    { key: 'org', label: 'Org' },
     { key: 'budget', label: 'Budget' },
     { key: 'health', label: 'Health' },
     { key: 'trust', label: 'Trust' },
@@ -148,11 +144,10 @@ export function CockpitPanel() {
         ))}
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-auto">
+      {/* Tab content — brain gets maximum space via flex-1 + min-h-0 */}
+      <div className={`flex-1 min-h-0 ${tab === 'brain' ? 'flex flex-col' : 'overflow-auto'}`}>
         {tab === 'brain' && <CockpitBrainTab />}
         {tab === 'slots' && <SlotsTab slots={slots} slotCosts={slotCosts} session={session} />}
-        {tab === 'org' && <OrgTab roles={orgRoles} />}
         {tab === 'budget' && <BudgetTab status={budgetStatus} sessionCost={sessionCost} />}
         {tab === 'health' && <HealthTab slots={slots} />}
         {tab === 'trust' && <TrustTab scores={trustScores} />}
@@ -196,39 +191,6 @@ function SlotsTab({ slots, slotCosts, session }: { slots: AgentSlot[]; slotCosts
           {slot.currentTask && <div className="text-[9px] font-mono text-gray-400 truncate">{slot.currentTask}</div>}
           {slotCosts[slot.id] && <CostBadge summary={slotCosts[slot.id]} />}
         </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Tab: Org Chart ──
-
-function OrgTab({ roles }: { roles: OrgRole[] }) {
-  if (roles.length === 0) {
-    return <EmptyTab icon="👥" text="No org chart configured" />;
-  }
-  const roots = roles.filter(r => !r.parentRoleId);
-  return (
-    <div className="p-3 space-y-1">
-      {roots.map(role => (
-        <OrgNode key={role.id} role={role} roles={roles} depth={0} />
-      ))}
-    </div>
-  );
-}
-
-function OrgNode({ role, roles, depth }: { role: OrgRole; roles: OrgRole[]; depth: number }) {
-  const children = roles.filter(r => r.parentRoleId === role.id);
-  return (
-    <div>
-      <div className="flex items-center gap-1.5 py-1" style={{ paddingLeft: depth * 16 }}>
-        <span className="w-1.5 h-1.5 rounded-full bg-neon-green" />
-        <span className="text-[10px] font-bold font-mono text-gray-300">{role.name}</span>
-        <span className="text-[8px] font-mono text-gray-600">{role.roleType}</span>
-        {role.authority === 'full' && <span className="text-[7px] font-mono text-neon-purple bg-neon-purple/10 px-1 rounded">full</span>}
-      </div>
-      {children.map(child => (
-        <OrgNode key={child.id} role={child} roles={roles} depth={depth + 1} />
       ))}
     </div>
   );

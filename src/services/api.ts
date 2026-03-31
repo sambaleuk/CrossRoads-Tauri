@@ -11,7 +11,8 @@ import type {
   HeartbeatConfig, ScheduledRun, Workspace, AgentRuntimeConfig,
   ConfigSnapshot, PerformanceProfile, AgentRecommendation, ConflictPrediction,
   AgentMemory, TrustScore, ConflictPreventionResult,
-  CockpitOrchestrationPlan, AdaptationAction
+  CockpitOrchestrationPlan, AdaptationAction,
+  Suite
 } from '../models';
 
 // Session
@@ -394,3 +395,7 @@ export const fetchChatHistory = (sessionId: string, limit?: number) =>
   invoke<any[]>('fetch_chat_history', { sessionId, limit });
 export const getWakeContext = (sessionId?: string) =>
   invoke<string>('get_wake_context', { sessionId });
+
+// Suite System
+export const listSuites = () => invoke<Suite[]>('list_suites');
+export const getSuite = (suiteId: string) => invoke<Suite | null>('get_suite', { suiteId });
