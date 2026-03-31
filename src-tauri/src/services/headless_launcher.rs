@@ -182,6 +182,119 @@ pub fn launch_headless_agent(
     Ok(session)
 }
 
+/// Launch a non-Claude agent (Gemini CLI, Codex) in its native non-interactive mode.
+///
+/// Unlike `launch_headless_agent` which uses Claude's `--agent` + `--output-format stream-json`,
+/// this spawns the agent's own CLI with native flags:
+/// - Gemini: positional prompt + `--yolo` for auto-approval
+/// - Codex: `--prompt` + `--full-auto` for headless execution
+pub fn launch_native_agent(
+    slot_id: &str,
+    agent_type: &str,
+    prompt: &str,
+    worktree_path: &str,
+) -> Result<HeadlessSession, String> {
+    let exec_path = cli_detector::find_loop_script(agent_type)
+        .or_else(|| {
+            let candidates: Vec<String> = match agent_type {
+                "gemini" => vec![
+                    "/opt/homebrew/bin/gemini".into(),
+                    "/usr/local/bin/gemini".into(),
+                ],
+                "codex" => vec![
+                    "/opt/homebrew/bin/codex".into(),
+                    "/usr/local/bin/codex".into(),
+                ],
+                _ => vec![],
+            };
+            candidates.into_iter().find(|p| std::path::Path::new(p).exists())
+        })
+        .ok_or_else(|| format!("{} CLI not found", agent_type))?;
+
+    let mut cmd = Command::new(&exec_path);
+
+    match agent_type {
+        "gemini" => {
+            cmd.args(["--yolo", prompt]);
+        }
+        "codex" => {
+            cmd.args(["--prompt", prompt, "--full-auto"]);
+        }
+        _ => {
+            cmd.arg(prompt);
+        }
+    }
+
+    cmd.current_dir(worktree_path);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let _ = slot_repo::update_slot(slot_id, "provisioning", Some(&format!("Launching {} agent...", agent_type)));
+    event_bus::emit_agent_status(slot_id, "provisioning", None, Some("Launching..."), None);
+
+    let mut child = cmd.spawn()
+        .map_err(|e| format!("Failed to spawn {}: {}", agent_type, e))?;
+
+    let pid = child.id();
+    let session = HeadlessSession {
+        slot_id: slot_id.to_string(),
+        agent_name: format!("{}-slot-{}", agent_type, slot_id),
+        claude_session_id: None,
+        process_id: pid,
+    };
+
+    {
+        let mut sessions = HEADLESS_SESSIONS.lock().unwrap();
+        sessions.insert(slot_id.to_string(), session.clone());
+    }
+
+    let _ = slot_repo::update_slot(slot_id, "running", Some(&format!("{} agent started", agent_type)));
+    event_bus::emit_agent_status(slot_id, "running", None, Some("Agent started"), None);
+
+    let slot_id_owned = slot_id.to_string();
+    let agent_type_owned = agent_type.to_string();
+
+    // Read stdout in background thread
+    if let Some(stdout) = child.stdout.take() {
+        let slot_for_reader = slot_id_owned.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    // Native agents don't emit stream-json — route raw output to logs
+                    event_bus::emit_log("info", &agent_type_owned, &line, Some(&slot_for_reader));
+                }
+            }
+        });
+    }
+
+    // Background thread to wait for exit
+    std::thread::spawn(move || {
+        let exit_status = child.wait();
+        let mut sessions = HEADLESS_SESSIONS.lock().unwrap();
+        sessions.remove(&slot_id_owned);
+
+        match exit_status {
+            Ok(status) if status.success() => {
+                let _ = slot_repo::update_slot(&slot_id_owned, "done", Some("Completed"));
+                event_bus::emit_agent_status(&slot_id_owned, "done", Some(100.0), Some("Completed"), None);
+            }
+            Ok(status) => {
+                let msg = format!("Agent exited with code: {}", status.code().unwrap_or(-1));
+                let _ = slot_repo::update_slot(&slot_id_owned, "error", Some(&msg));
+                event_bus::emit_agent_status(&slot_id_owned, "error", None, Some(&msg), None);
+            }
+            Err(e) => {
+                let msg = format!("Process wait error: {}", e);
+                let _ = slot_repo::update_slot(&slot_id_owned, "error", Some(&msg));
+                event_bus::emit_agent_status(&slot_id_owned, "error", None, Some(&msg), None);
+            }
+        }
+    });
+
+    Ok(session)
+}
+
 /// Get the session_id for a slot (for resume after crash)
 pub fn get_session_id(slot_id: &str) -> Option<String> {
     let sessions = HEADLESS_SESSIONS.lock().unwrap();

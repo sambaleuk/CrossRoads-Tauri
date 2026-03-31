@@ -961,6 +961,11 @@ pub fn generate_agent_definitions(
         let model = select_model_for_role(&assignment.skill_name);
         let tools = select_tools_for_role(&assignment.skill_name);
 
+        // Role-based brief section
+        let (role_title, role_instruction) = role_brief(
+            &assignment.skill_name, assignment.slot_index as usize,
+        );
+
         let content = format!(
 r#"---
 name: {name}
@@ -972,6 +977,11 @@ allowedTools: [{tools}]
 ---
 
 # {name}
+
+## Role
+**{role_title}**
+
+{role_instruction}
 
 ## Mission
 {task_description}
@@ -1001,6 +1011,8 @@ allowedTools: [{tools}]
             description = assignment.task_description.replace('"', "'"),
             tools = tools,
             model = model,
+            role_title = role_title,
+            role_instruction = role_instruction,
             task_description = assignment.task_description,
             project_name = cop.project_name,
             project_type = cop.project_type,
@@ -1042,6 +1054,40 @@ fn select_tools_for_role(skill_name: &str) -> &'static str {
         "testing" => "Read, Bash, Glob, Grep, Edit",
         "review" => "Read, Glob, Grep",
         _ => "Edit, Write, Read, Bash, Glob, Grep",
+    }
+}
+
+/// Map branch/skill names to role-specific briefs for agent definitions.
+pub fn role_brief(skill_name: &str, _slot_number: usize) -> (&'static str, &'static str) {
+    match skill_name {
+        s if s.contains("test") || s.contains("qa") => (
+            "TESTER — Integration, E2E, and performance testing",
+            "Read the codebase, then write comprehensive tests."
+        ),
+        s if s.contains("review") || s.contains("audit") => (
+            "REVIEWER — Deep code review and quality analysis",
+            "Read the full codebase, then produce your review report."
+        ),
+        s if s.contains("doc") || s.contains("write") => (
+            "WRITER — Documentation and technical writing",
+            "Read the codebase and existing docs, then generate accurate documentation."
+        ),
+        s if s.contains("security") => (
+            "SECURITY AUDITOR — Vulnerability assessment",
+            "Scan the codebase for security issues, then produce your audit report."
+        ),
+        s if s.contains("debug") || s.contains("fix") => (
+            "DEBUGGER — Bug reproduction and fix",
+            "Reproduce the bug, diagnose root cause, then fix with regression tests."
+        ),
+        s if s.contains("devops") || s.contains("deploy") => (
+            "DEVOPS — Infrastructure and deployment",
+            "Analyze current infrastructure, then implement your assigned task."
+        ),
+        _ => (
+            "IMPLEMENTER — Feature development and unit testing",
+            "Read the project structure, then implement your assigned task with tests."
+        ),
     }
 }
 

@@ -242,6 +242,10 @@ pub const EVENT_COCKPIT_ACTION: &str = "cockpit-action";
 pub const EVENT_COCKPIT_DECISION: &str = "cockpit-decision";
 pub const EVENT_COCKPIT_LOOP: &str = "cockpit-loop";
 pub const EVENT_COCKPIT_SUBAGENT: &str = "cockpit-subagent";
+pub const EVENT_COCKPIT_STATUS: &str = "cockpit-status";
+pub const EVENT_COCKPIT_REPORT: &str = "cockpit-report";
+pub const EVENT_COCKPIT_LOG: &str = "cockpit-log";
+pub const EVENT_COCKPIT_ERROR: &str = "cockpit-error";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -260,6 +264,10 @@ pub fn emit_cockpit_event(event_type: &str, content: &str, metadata: Option<serd
         "decision" => EVENT_COCKPIT_DECISION,
         "loop" => EVENT_COCKPIT_LOOP,
         "subagent" => EVENT_COCKPIT_SUBAGENT,
+        "status" => EVENT_COCKPIT_STATUS,
+        "report" => EVENT_COCKPIT_REPORT,
+        "log" => EVENT_COCKPIT_LOG,
+        "error" => EVENT_COCKPIT_ERROR,
         _ => EVENT_COCKPIT_THINKING,
     };
     let payload = CockpitEventPayload {

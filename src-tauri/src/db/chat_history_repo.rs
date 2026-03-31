@@ -169,6 +169,66 @@ pub fn fetch_latest_wake_prompt(session_id: Option<&str>) -> Result<Option<Cockp
     })
 }
 
+// ── Harness Iteration (self-improvement proposals) ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessIteration {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub target: String,
+    pub critique: String,
+    pub proposal: String,
+    pub applied: bool,
+    pub impact: Option<String>,
+    pub created_at: String,
+}
+
+pub fn save_harness_iteration(session_id: Option<&str>, target: &str, critique: &str, proposal: &str) -> Result<String> {
+    with_db(|conn| {
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO harness_iteration (id, session_id, target, critique, proposal, applied, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
+            params![id, session_id, target, critique, proposal, now],
+        )?;
+        Ok(id)
+    })
+}
+
+pub fn fetch_pending_proposals(limit: i64) -> Result<Vec<HarnessIteration>> {
+    with_db(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, target, critique, proposal, applied, impact, created_at FROM harness_iteration WHERE applied = 0 ORDER BY created_at DESC LIMIT ?1"
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(HarnessIteration {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                target: row.get(2)?,
+                critique: row.get(3)?,
+                proposal: row.get(4)?,
+                applied: row.get::<_, i32>(5)? != 0,
+                impact: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?.collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    })
+}
+
+pub fn build_harness_summary() -> Result<String> {
+    let pending = fetch_pending_proposals(10)?;
+    if pending.is_empty() { return Ok(String::new()); }
+    let mut lines = vec![format!("## Pending Self-Improvements ({} proposals)", pending.len())];
+    for p in &pending {
+        let truncated: String = p.critique.chars().take(120).collect();
+        lines.push(format!("- **{}**: {}", p.target, truncated));
+    }
+    lines.push("\nReview these proposals. Apply if still valid, discard if outdated.".into());
+    Ok(lines.join("\n"))
+}
+
 /// Build a full wake context string combining latest wake prompt + recent chat summary.
 pub fn build_wake_context(session_id: Option<&str>) -> Result<String> {
     let mut sections = Vec::new();
@@ -198,6 +258,12 @@ pub fn build_wake_context(session_id: Option<&str>) -> Result<String> {
     let chat_summary = build_chat_summary(session_id, 20)?;
     if !chat_summary.is_empty() {
         sections.push(format!("### Recent Conversation\n{}", chat_summary));
+    }
+
+    // Harness self-improvement proposals
+    let harness = build_harness_summary().unwrap_or_default();
+    if !harness.is_empty() {
+        sections.push(format!("\n{}", harness));
     }
 
     if sections.is_empty() {

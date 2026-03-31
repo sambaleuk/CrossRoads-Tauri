@@ -74,8 +74,14 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
     // Gather active slot info for context
     let active_slots = gather_active_slots(project_path);
 
-    // Generate the agent definition files
+    // Generate the agent definition files (with soul injection)
     let _ = cockpit_brain::generate_cockpit_agent_definition(project_path, &cop, &active_slots);
+
+    // Inject soul into the cockpit-brain.md agent definition
+    inject_soul_into_agent_def(project_path);
+
+    // Inject chairman brief if available
+    inject_chairman_brief(project_path);
 
     // Build wake context from previous session (self-continuity)
     let session = session_repo::active_session_for_path(project_path).ok().flatten();
@@ -142,8 +148,12 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
                 // Route to cockpit-specific events
                 match &event {
                     stream_parser::StreamEvent::Text { text, .. } => {
-                        let category = event_bus::categorize_cockpit_text(text);
-                        event_bus::emit_cockpit_event(category, text, None);
+                        let (event_type, msg) = categorize_brain_text(text);
+                        event_bus::emit_cockpit_event(event_type, msg, None);
+                        // Thinking events stay in brain tab only — skip MCP log routing
+                        if event_type == "thinking" {
+                            continue;
+                        }
                     }
                     stream_parser::StreamEvent::ToolUse { tool_name, input, .. } => {
                         let is_agent = tool_name == "Agent" || tool_name == "Task";
@@ -177,13 +187,13 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
                             "Cockpit session completed", None);
                     }
                     stream_parser::StreamEvent::Error { message, .. } => {
-                        event_bus::emit_cockpit_event("decision",
-                            &format!("[ERROR] {}", message), None);
+                        event_bus::emit_cockpit_event("error",
+                            message, None);
                     }
                     _ => {}
                 }
 
-                // Also route to general event bus for MCP logs
+                // Route to general event bus for MCP logs
                 stream_parser::route_event(&event);
             }
         }
@@ -287,6 +297,9 @@ fn save_wake_prompt_on_stop() {
         );
 
         event_bus::emit_log("info", "cockpit-session", "Wake prompt saved for session resume", None);
+
+        // Ingest harness proposals if the cockpit brain wrote them
+        ingest_harness_proposals(&session.project_path, &session.id);
     }
 }
 
@@ -421,6 +434,156 @@ fn gather_active_slots(project_path: &str) -> Vec<(i32, String, String, String)>
     slots
 }
 
+/// Categorize cockpit brain text using structured prefixes, with keyword fallback.
+fn categorize_brain_text(text: &str) -> (&'static str, &str) {
+    let trimmed = text.trim();
+    let protocols: [(&str, &str); 6] = [
+        ("[ERROR]", "error"),
+        ("[ALERT]", "decision"),
+        ("[DECISION]", "decision"),
+        ("[STATUS]", "status"),
+        ("[REPORT]", "report"),
+        ("[LOG]", "log"),
+    ];
+    for (prefix, event_type) in &protocols {
+        if trimmed.starts_with(prefix) {
+            let msg = trimmed[prefix.len()..].trim();
+            return (event_type, msg);
+        }
+    }
+    // Fallback keyword-based
+    let lower = trimmed.to_lowercase();
+    if lower.contains("spawning") || lower.contains("launching") { return ("subagent", trimmed); }
+    if lower.contains("detected") || lower.contains("decided") { return ("decision", trimmed); }
+    if lower.contains("monitoring") || lower.contains("scanning") { return ("loop", trimmed); }
+    ("thinking", trimmed)
+}
+
+/// Inject cockpit-soul.md content into the cockpit-brain.md agent definition.
+fn inject_soul_into_agent_def(project_path: &str) {
+    let agent_def_path = std::path::Path::new(project_path)
+        .join(".claude").join("agents").join("cockpit-brain.md");
+
+    if !agent_def_path.exists() {
+        return;
+    }
+
+    // Try to read soul from resource directory (bundled binary), then fallback to source
+    let soul_content = {
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|pp| pp.join("resources").join("cockpit-soul.md")));
+
+        let bundled = exe_dir.and_then(|p| std::fs::read_to_string(&p).ok());
+
+        bundled.or_else(|| {
+            // Fallback to source path
+            let src_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("resources").join("cockpit-soul.md");
+            std::fs::read_to_string(src_path).ok()
+        })
+    };
+
+    let soul = match soul_content {
+        Some(s) => s,
+        None => {
+            log::warn!("cockpit-soul.md not found — skipping soul injection");
+            return;
+        }
+    };
+
+    // Read current agent def
+    let current = match std::fs::read_to_string(&agent_def_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    // Insert soul after YAML frontmatter (after the closing ---)
+    let injected = if let Some(pos) = current.find("---\n\n") {
+        let split_at = pos + 4; // after "---\n"
+        format!("{}\n\n## Soul\n\n{}\n{}", &current[..split_at], soul, &current[split_at..])
+    } else {
+        format!("## Soul\n\n{}\n\n{}", soul, current)
+    };
+
+    let _ = std::fs::write(&agent_def_path, injected);
+    log::info!("Soul injected into cockpit-brain.md");
+}
+
+/// Inject chairman brief from the active session into the cockpit-brain.md agent def.
+fn inject_chairman_brief(project_path: &str) {
+    let session = session_repo::active_session_for_path(project_path).ok().flatten();
+    let brief = match session.and_then(|s| s.chairman_brief) {
+        Some(b) if !b.is_empty() => b,
+        _ => return,
+    };
+
+    let agent_def_path = std::path::Path::new(project_path)
+        .join(".claude").join("agents").join("cockpit-brain.md");
+
+    if !agent_def_path.exists() {
+        return;
+    }
+
+    let current = match std::fs::read_to_string(&agent_def_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let chairman_section = format!("\n\n## Chairman Strategy\n\n{}\n", brief);
+
+    // Append before the last section or at end
+    let updated = format!("{}{}", current, chairman_section);
+    let _ = std::fs::write(&agent_def_path, updated);
+    log::info!("Chairman brief injected into cockpit-brain.md");
+}
+
+/// Read harness proposals from .crossroads/harness-proposals.json and save to DB.
+fn ingest_harness_proposals(project_path: &str, session_id: &str) {
+    let proposals_path = std::path::Path::new(project_path)
+        .join(".crossroads").join("harness-proposals.json");
+
+    if !proposals_path.exists() {
+        return;
+    }
+
+    let content = match std::fs::read_to_string(&proposals_path) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Failed to read harness-proposals.json: {}", e);
+            return;
+        }
+    };
+
+    let proposals: Vec<serde_json::Value> = match serde_json::from_str(&content) {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("Failed to parse harness-proposals.json: {}", e);
+            return;
+        }
+    };
+
+    let mut count = 0;
+    for proposal in &proposals {
+        let target = proposal.get("target").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let critique = proposal.get("critique").and_then(|v| v.as_str()).unwrap_or("");
+        let prop = proposal.get("proposal").and_then(|v| v.as_str()).unwrap_or("");
+
+        if !critique.is_empty() && !prop.is_empty() {
+            if chat_history_repo::save_harness_iteration(Some(session_id), target, critique, prop).is_ok() {
+                count += 1;
+            }
+        }
+    }
+
+    if count > 0 {
+        // Delete the file after successful ingestion
+        let _ = std::fs::remove_file(&proposals_path);
+        event_bus::emit_log("info", "cockpit-session",
+            &format!("Ingested {} harness proposals from cockpit brain", count), None);
+    }
+}
+
 fn build_cockpit_prompt(
     project_path: &str,
     cop: &cockpit_brain::CockpitOrchestrationPlan,
@@ -500,12 +663,33 @@ mod tests {
     }
 
     #[test]
-    fn test_categorize_cockpit_text() {
-        assert_eq!(event_bus::categorize_cockpit_text("[DECIDE] Spawning agent"), "decision");
-        assert_eq!(event_bus::categorize_cockpit_text("[OBSERVE] Slot 1 progress"), "loop");
-        assert_eq!(event_bus::categorize_cockpit_text("[ACTION] Running tests"), "action");
-        assert_eq!(event_bus::categorize_cockpit_text("Thinking about next steps..."), "thinking");
-        assert_eq!(event_bus::categorize_cockpit_text("Detected a new PRD file"), "decision");
+    fn test_categorize_brain_text() {
+        let (t, _) = categorize_brain_text("[ERROR] Something broke");
+        assert_eq!(t, "error");
+        let (t, _) = categorize_brain_text("[ALERT] Budget warning");
+        assert_eq!(t, "decision");
+        let (t, _) = categorize_brain_text("[DECISION] Spawning agent");
+        assert_eq!(t, "decision");
+        let (t, _) = categorize_brain_text("[STATUS] Slot 1 at 80%");
+        assert_eq!(t, "status");
+        let (t, _) = categorize_brain_text("[REPORT] Health report");
+        assert_eq!(t, "report");
+        let (t, _) = categorize_brain_text("[LOG] Observation");
+        assert_eq!(t, "log");
+        let (t, _) = categorize_brain_text("Detected a new PRD file");
+        assert_eq!(t, "decision");
+        let (t, _) = categorize_brain_text("Thinking about next steps...");
+        assert_eq!(t, "thinking");
+    }
+
+    #[test]
+    fn test_role_brief() {
+        let (title, _) = cockpit_brain::role_brief("testing", 0);
+        assert!(title.contains("TESTER"));
+        let (title, _) = cockpit_brain::role_brief("backend", 1);
+        assert!(title.contains("IMPLEMENTER"));
+        let (title, _) = cockpit_brain::role_brief("security-audit", 2);
+        assert!(title.contains("SECURITY"));
     }
 
     #[test]

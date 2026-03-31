@@ -8,7 +8,7 @@ import * as api from '../services/api';
 
 interface CockpitEvent {
   id: string;
-  eventType: 'thinking' | 'action' | 'decision' | 'loop' | 'subagent';
+  eventType: 'thinking' | 'action' | 'decision' | 'loop' | 'subagent' | 'status' | 'report' | 'log' | 'error';
   content: string;
   timestamp: string;
   metadata?: any;
@@ -56,6 +56,10 @@ export function CockpitBrainTab() {
       'cockpit-decision',
       'cockpit-loop',
       'cockpit-subagent',
+      'cockpit-status',
+      'cockpit-report',
+      'cockpit-log',
+      'cockpit-error',
     ];
 
     for (const eventName of eventTypes) {
@@ -234,6 +238,40 @@ function EventEntry({ event }: { event: CockpitEvent }) {
         <div className="flex items-center gap-1.5 py-0.5">
           <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
           <span className="text-[8px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">{event.content}</span>
+        </div>
+      );
+
+    case 'status':
+      return (
+        <div className="flex gap-1.5 py-0.5 border-l-2 border-cyan-400/40 pl-2">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[9px] font-mono text-cyan-400 leading-relaxed">{event.content}</span>
+        </div>
+      );
+
+    case 'report':
+      return (
+        <div className="flex gap-1.5 py-1 border-l-2 border-amber-400/40 pl-2">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[8px] shrink-0">&#128196;</span>
+          <span className="text-[9px] font-mono text-amber-300 leading-relaxed">{event.content}</span>
+        </div>
+      );
+
+    case 'log':
+      return (
+        <div className="flex gap-1.5 py-0.5">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[9px] font-mono text-gray-500 leading-relaxed">{event.content}</span>
+        </div>
+      );
+
+    case 'error':
+      return (
+        <div className="flex gap-1.5 py-1 border-l-2 border-red-500/60 pl-2 bg-red-500/5 rounded-r">
+          <span className="text-[7px] font-mono text-gray-600 shrink-0 w-14">{time}</span>
+          <span className="text-[8px] shrink-0">&#9888;</span>
+          <span className="text-[9px] font-mono text-red-400 font-bold leading-relaxed">{event.content}</span>
         </div>
       );
 

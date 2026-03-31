@@ -63,6 +63,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ("v17_trust_score", V17_TRUST_SCORE),
         ("v18_claude_session_id", V18_CLAUDE_SESSION_ID),
         ("v19_chat_history", V19_CHAT_HISTORY),
+        ("v20_harness_iteration", V20_HARNESS_ITERATION),
     ];
 
     for (name, sql) in migrations {
@@ -477,6 +478,21 @@ const V19_CHAT_HISTORY: &str = "
     CREATE INDEX idx_wake_prompt_session ON cockpit_wake_prompt (sessionId);
 ";
 
+const V20_HARNESS_ITERATION: &str = "
+    CREATE TABLE IF NOT EXISTS harness_iteration (
+        id TEXT PRIMARY KEY NOT NULL,
+        session_id TEXT REFERENCES cockpit_session(id) ON DELETE CASCADE,
+        target TEXT NOT NULL,
+        critique TEXT NOT NULL,
+        proposal TEXT NOT NULL,
+        applied INTEGER NOT NULL DEFAULT 0,
+        impact TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_harness_iteration_session ON harness_iteration(session_id);
+    CREATE INDEX IF NOT EXISTS idx_harness_iteration_target ON harness_iteration(target);
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,7 +507,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 19);
+        assert_eq!(count, 20);
     }
 
     #[test]
@@ -546,7 +562,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 19);
+        assert_eq!(count, 20);
     }
 
     #[test]
