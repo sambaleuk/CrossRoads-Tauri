@@ -1,11 +1,13 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '../stores/appStore';
+import { listen } from '@tauri-apps/api/event';
 import { TerminalSlot } from '../components/TerminalSlot';
 import { SlotTerminal } from '../components/SlotTerminal';
 import { SlotConfigDialog } from '../components/SlotConfigDialog';
 import { NeonBrain } from '../components/NeonBrain';
 import { SynapseConnections } from '../components/SynapseConnections';
 import { DashboardMetrics } from '../components/DashboardMetrics';
+import * as api from '../services/api';
 import type { AgentSlot, AgentSlotStatus } from '../models';
 
 // Default 6 empty slots
@@ -51,9 +53,32 @@ function deriveBrainState(slots: AgentSlot[]): 'idle' | 'running' | 'merging' | 
 }
 
 export function Dashboard() {
-  const { slots: activeSlots, slotCosts, expandedSlotId, setExpandedSlotId } = useAppStore();
+  const { slots: activeSlots, slotCosts, expandedSlotId, setExpandedSlotId, session } = useAppStore();
   const displaySlots = activeSlots.length > 0 ? activeSlots : defaultSlots;
   const [configSlotIndex, setConfigSlotIndex] = useState<number | null>(null);
+
+  // Listen for agent-status events to refresh slots in real-time
+  useEffect(() => {
+    const unlisteners: (() => void)[] = [];
+
+    listen<{ slotId: string; status: string }>('agent-status', async () => {
+      // Refresh all slots from DB when any slot status changes
+      if (session?.id) {
+        const freshSlots = await api.fetchSlots(session.id);
+        useAppStore.getState().setSlots(freshSlots);
+      }
+    }).then(u => unlisteners.push(u));
+
+    // Also listen for log entries (slots launching produces these)
+    listen('log-entry', async () => {
+      if (session?.id && activeSlots.some(s => s.status === 'provisioning' || s.status === 'empty')) {
+        const freshSlots = await api.fetchSlots(session.id);
+        useAppStore.getState().setSlots(freshSlots);
+      }
+    }).then(u => unlisteners.push(u));
+
+    return () => { unlisteners.forEach(u => u()); };
+  }, [session?.id]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState({ w: 900, h: 700 });
