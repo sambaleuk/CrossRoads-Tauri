@@ -306,6 +306,23 @@ pub fn categorize_cockpit_text(text: &str) -> &'static str {
     "thinking"
 }
 
+// ── PRD-44: Brain ↔ Chat bidirectional communication ──
+
+pub const EVENT_COCKPIT_TO_CHAT: &str = "cockpit-to-chat";
+pub const EVENT_BRAIN_RESTART_NEEDED: &str = "brain-restart-needed";
+
+/// Emit a message from the cockpit brain to the chat panel
+pub fn emit_cockpit_to_chat(content: &str) {
+    let payload = serde_json::json!({ "content": content.to_string() });
+    emit(EVENT_COCKPIT_TO_CHAT, &payload);
+}
+
+/// Emit a signal that the brain needs to be restarted (for frontend handling)
+pub fn emit_brain_restart_needed() {
+    let payload = serde_json::json!({ "reason": "unexpected_exit" });
+    emit(EVENT_BRAIN_RESTART_NEEDED, &payload);
+}
+
 // ── Core emit helper ──
 
 fn emit<T: Serialize + Clone>(event: &str, payload: &T) {

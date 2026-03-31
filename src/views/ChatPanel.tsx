@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { PRDDetectedOverlay, detectPRDInResponse } from '../components/PRDDetectedOverlay';
 import { SlotAssignmentDialog } from '../components/SlotAssignmentDialog';
 import { saveChatMessage } from '../services/api';
@@ -52,6 +53,28 @@ Always include the JSON block PLUS a summary after it.
 
 Be concise and direct. Lead with the answer.`;
 
+/** Build system prompt with live cockpit context injected */
+function buildSystemPrompt(): string {
+  const { session, slots, activeSuiteId } = useAppStore.getState();
+  const slotLines = slots.length > 0
+    ? slots.map(s => `  - Slot ${s.slotIndex + 1} (${s.agentType}): ${s.currentTask || 'idle'} [${s.status}]`).join('\n')
+    : '  No active slots';
+
+  const cockpitSection = `
+
+## Cockpit Brain (Active)
+You are part of the XRoads system. A cockpit brain runs in parallel — it monitors the project autonomously.
+
+**Active Suite:** ${activeSuiteId}
+**Session:** ${session?.status ?? 'no session'}
+**Active Slots:**
+${slotLines}
+
+The brain sends you messages prefixed with a brain emoji. You and the brain are two halves of one intelligence.`;
+
+  return SYSTEM_PROMPT + cockpitSection;
+}
+
 const CLI_SUGGESTIONS = ['Create a PRD for...', 'Plan orchestration', 'What agents should I use?', 'Explain my codebase'];
 const API_SUGGESTIONS = ['Write a PRD for auth', 'Analyze dependencies', 'How to structure this?', 'Review my approach'];
 
@@ -78,6 +101,20 @@ export function ChatPanel() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Listen for cockpit brain → chat messages (bidirectional communication)
+  useEffect(() => {
+    const unlisten = listen<{ content: string }>('cockpit-to-chat', (event) => {
+      const brainMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'system',
+        content: `\u{1F9E0} **Cockpit Brain**: ${event.payload.content}`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, brainMsg]);
+    });
+    return () => { unlisten.then(u => u()); };
+  }, []);
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || isLoading) return;
@@ -116,7 +153,7 @@ export function ChatPanel() {
       // Call Claude CLI via Tauri backend command
       const response = await invoke<string>('run_claude_cli', {
         prompt: fullPrompt,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: buildSystemPrompt(),
         workingDirectory: projectPath ?? undefined,
       }).catch(() => null);
 
@@ -173,7 +210,7 @@ export function ChatPanel() {
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true',
         },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4096, system: SYSTEM_PROMPT, messages: apiMessages, stream: true }),
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4096, system: buildSystemPrompt(), messages: apiMessages, stream: true }),
         signal: controller.signal,
       });
 

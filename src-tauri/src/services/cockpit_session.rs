@@ -7,6 +7,10 @@ use crate::db::{session_repo, slot_repo, chat_history_repo};
 use crate::services::{event_bus, stream_parser, cli_detector, cockpit_brain};
 use crate::models::suite::builtin_suites;
 
+// ── Auto-restart counter for brain crash recovery ──
+static BRAIN_RESTART_COUNT: once_cell::sync::Lazy<Arc<Mutex<u32>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(0)));
+
 // ── PRD-44: Cockpit Session Manager ──
 //
 // The cockpit IS a Claude Code session. This service manages:
@@ -121,12 +125,19 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
         });
     }
 
+    // Reset auto-restart counter on successful start
+    {
+        let mut count = BRAIN_RESTART_COUNT.lock().unwrap();
+        *count = 0;
+    }
+
     event_bus::emit_cockpit_event("decision", "Cockpit brain starting...", None);
 
     // Spawn background thread to read and route stream-json
     let stdout = child.stdout.take()
         .ok_or_else(|| "Failed to capture cockpit stdout".to_string())?;
 
+    let project_path_owned = project_path.to_string();
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
 
@@ -199,14 +210,46 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
             }
         }
 
-        // Process ended — clean up
-        let _ = child.wait();
-        let mut cockpit = COCKPIT.lock().unwrap();
-        let final_session_id = cockpit.as_ref().and_then(|c| c.session_id.clone());
-        *cockpit = None;
+        // Process ended — clean up and potentially auto-restart
+        let exit_status = child.wait();
+        let was_unexpected = match &exit_status {
+            Ok(status) => !status.success(),
+            Err(_) => true,
+        };
+
+        let final_session_id = {
+            let mut cockpit = COCKPIT.lock().unwrap();
+            let sid = cockpit.as_ref().and_then(|c| c.session_id.clone());
+            *cockpit = None;
+            sid
+        };
 
         event_bus::emit_cockpit_event("decision",
             &format!("Cockpit brain stopped. Resume ID: {:?}", final_session_id), None);
+
+        // Auto-restart if the exit was unexpected and we haven't exceeded max restarts
+        if was_unexpected {
+            let should_restart = {
+                let mut count = BRAIN_RESTART_COUNT.lock().unwrap();
+                if *count < 3 {
+                    *count += 1;
+                    true
+                } else {
+                    false
+                }
+            };
+
+            if should_restart {
+                event_bus::emit_log("warn", "cockpit-brain",
+                    "Brain exited unexpectedly. Auto-restarting in 3 seconds...", None);
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                event_bus::emit_cockpit_event("decision", "Brain auto-restarting...", None);
+                let _ = start_session(&project_path_owned);
+            } else {
+                event_bus::emit_log("error", "cockpit-brain",
+                    "Brain exceeded max restart attempts (3). Manual restart required.", None);
+            }
+        }
     });
 
     Ok(CockpitStatus {
@@ -438,6 +481,17 @@ fn gather_active_slots(project_path: &str) -> Vec<(i32, String, String, String)>
 /// Categorize cockpit brain text using structured prefixes, with keyword fallback.
 fn categorize_brain_text(text: &str) -> (&'static str, &str) {
     let trimmed = text.trim();
+
+    // [CHAT] prefix → route to the chat panel (brain↔chat bidirectional link)
+    if trimmed.starts_with("[CHAT]") {
+        let msg = trimmed[6..].trim();
+        // Emit dedicated event for the chat panel
+        event_bus::emit_cockpit_to_chat(msg);
+        // Also log so it shows up in MCP logs
+        event_bus::emit_log("info", "cockpit-brain-chat", msg, None);
+        return ("decision", msg);
+    }
+
     let protocols: [(&str, &str); 6] = [
         ("[ERROR]", "error"),
         ("[ALERT]", "decision"),
@@ -723,6 +777,10 @@ mod tests {
         assert_eq!(t, "decision");
         let (t, _) = categorize_brain_text("Thinking about next steps...");
         assert_eq!(t, "thinking");
+        // [CHAT] prefix routes to chat panel and returns as "decision"
+        let (t, msg) = categorize_brain_text("[CHAT] All stories done. Ready for merge.");
+        assert_eq!(t, "decision");
+        assert_eq!(msg, "All stories done. Ready for merge.");
     }
 
     #[test]
