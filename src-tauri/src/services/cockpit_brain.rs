@@ -1060,6 +1060,10 @@ fn select_tools_for_role(skill_name: &str) -> &'static str {
 /// Map branch/skill names to role-specific briefs for agent definitions.
 pub fn role_brief(skill_name: &str, _slot_number: usize) -> (&'static str, &'static str) {
     match skill_name {
+        s if s.contains("security") || s.contains("compliance") => (
+            "SECURITY AUDITOR — Vulnerability assessment",
+            "Scan the codebase for security issues, then produce your audit report."
+        ),
         s if s.contains("test") || s.contains("qa") => (
             "TESTER — Integration, E2E, and performance testing",
             "Read the codebase, then write comprehensive tests."
@@ -1071,10 +1075,6 @@ pub fn role_brief(skill_name: &str, _slot_number: usize) -> (&'static str, &'sta
         s if s.contains("doc") || s.contains("write") => (
             "WRITER — Documentation and technical writing",
             "Read the codebase and existing docs, then generate accurate documentation."
-        ),
-        s if s.contains("security") => (
-            "SECURITY AUDITOR — Vulnerability assessment",
-            "Scan the codebase for security issues, then produce your audit report."
         ),
         s if s.contains("debug") || s.contains("fix") => (
             "DEBUGGER — Bug reproduction and fix",
