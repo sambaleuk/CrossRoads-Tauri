@@ -42,7 +42,25 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   projectPath: null,
   isGitRepo: false,
-  setProjectPath: (path) => set({ projectPath: path, isGitRepo: true }),
+  setProjectPath: (path) => {
+    set({ projectPath: path, isGitRepo: true });
+    // Auto-bootstrap cockpit on project switch
+    import('../services/api').then(async (api) => {
+      try {
+        // Stop previous cockpit session if running
+        await api.stopCockpitSession().catch(() => {});
+        // Create fresh session
+        const session = await api.createSession(path);
+        set({ session });
+        // Activate (chairman deliberates + slots assigned)
+        await api.cockpitActivate(session.id);
+        // Start cockpit brain
+        await api.startCockpitSession(path);
+      } catch (e) {
+        console.warn('Auto-cockpit bootstrap failed:', e);
+      }
+    });
+  },
 
   session: null,
   setSession: (session) => set({ session }),
