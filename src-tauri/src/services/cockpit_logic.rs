@@ -29,10 +29,10 @@ pub fn transition(session_id: &str, event: &str) -> Result<String, String> {
         .find(|(from, evt, _)| *from == current && *evt == event)
         .ok_or_else(|| format!("Invalid transition: {} -> {} (current: {})", current, event, current))?;
 
-    // Run guards
+    // Run guards (0 slots is allowed — the brain decides when to launch)
     match event {
         "activate" => guard_has_valid_project(&session.project_path)?,
-        "slots_assigned" => guard_at_least_one_slot(session_id)?,
+        "slots_assigned" => { /* no guard — brain can operate with 0 slots */ },
         "close" if current == &"active" => guard_no_pending_gates(session_id)?,
         _ => {}
     }
@@ -60,14 +60,7 @@ fn guard_has_valid_project(project_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn guard_at_least_one_slot(session_id: &str) -> Result<(), String> {
-    let slots = slot_repo::fetch_slots_for_session(session_id)
-        .map_err(|e| e.to_string())?;
-    if slots.is_empty() {
-        return Err("No slots configured for this session".into());
-    }
-    Ok(())
-}
+// guard_at_least_one_slot removed — brain operates with 0 slots and decides when to launch
 
 fn guard_no_pending_gates(session_id: &str) -> Result<(), String> {
     let slots = slot_repo::fetch_slots_for_session(session_id)
@@ -691,13 +684,13 @@ mod tests {
     }
 
     #[test]
-    fn test_slots_assigned_guard_rejects_empty() {
+    fn test_slots_assigned_allows_zero_slots() {
         let sid = setup_test_session("/tmp/cockpit-guard-test");
-        // Force status to initializing to test the guard
+        // Force status to initializing — 0 slots is now allowed (brain decides)
         session_repo::update_session(&sid, "initializing", None).unwrap();
         let result = transition(&sid, "slots_assigned");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("No slots configured"));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "active");
     }
 
     #[test]

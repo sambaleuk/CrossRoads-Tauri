@@ -244,6 +244,12 @@ pub fn spawn_agent(req: SpawnRequest) -> Result<String, String> {
 
 #[tauri::command]
 pub fn abort_agent(slot_id: String) -> Result<(), String> {
+    // Emit slot termination to chat panel before aborting
+    if let Ok(Some(slot)) = slot_repo::fetch_slot(&slot_id) {
+        event_bus::emit_cockpit_to_chat(
+            &format!("Slot {} completed/aborted: {}",
+                slot.slot_index, slot.current_task.as_deref().unwrap_or("unknown task")));
+    }
     let mgr = LIFECYCLE_MANAGER.lock().unwrap();
     mgr.abort_agent(&slot_id)
 }
@@ -501,6 +507,11 @@ pub fn cockpit_activate(session_id: String) -> Result<cockpit_logic::ChairmanOut
                     Ok(session) => {
                         event_bus::emit_log("info", "auto-launch",
                             &format!("{} agent {} spawned (pid: {})", req.agent_type, agent_name, session.process_id), None);
+                        // Inject slot launch into chat panel
+                        event_bus::emit_cockpit_to_chat(
+                            &format!("Slot {} ({}) launched on branch {} — {}",
+                                req.slot_index, req.agent_type, req.branch_name,
+                                req.handoff_context.as_deref().unwrap_or("task")));
                     }
                     Err(e) => {
                         // Fallback to legacy PTY spawn
@@ -591,6 +602,12 @@ pub fn launch_headless(
 
 #[tauri::command]
 pub fn abort_headless(slot_id: String) -> Result<(), String> {
+    // Emit slot termination to chat panel
+    if let Ok(Some(slot)) = slot_repo::fetch_slot(&slot_id) {
+        event_bus::emit_cockpit_to_chat(
+            &format!("Slot {} terminated: {}",
+                slot.slot_index, slot.current_task.as_deref().unwrap_or("unknown task")));
+    }
     headless_launcher::abort_headless(&slot_id)
 }
 

@@ -144,14 +144,23 @@ export function CockpitPanel() {
         ))}
       </div>
 
-      {/* Tab content — brain gets maximum space via flex-1 + min-h-0 */}
-      <div className={`flex-1 min-h-0 ${tab === 'brain' ? 'flex flex-col' : 'overflow-auto'}`}>
-        {tab === 'brain' && <CockpitBrainTab />}
-        {tab === 'slots' && <SlotsTab slots={slots} slotCosts={slotCosts} session={session} />}
-        {tab === 'budget' && <BudgetTab status={budgetStatus} sessionCost={sessionCost} />}
-        {tab === 'health' && <HealthTab slots={slots} />}
-        {tab === 'trust' && <TrustTab scores={trustScores} />}
-        {tab === 'audit' && <AuditTab gates={gates} />}
+      {/* Tab content — brain gets 55% height, chairman/budget below at 45% */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        {tab === 'brain' && (
+          <>
+            <div className="flex flex-col" style={{ flex: '55 1 0%', minHeight: 0 }}>
+              <CockpitBrainTab />
+            </div>
+            <div className="overflow-auto border-t border-gray-800" style={{ flex: '45 1 0%', minHeight: 0 }}>
+              <SlotsTab slots={slots} slotCosts={slotCosts} session={session} />
+            </div>
+          </>
+        )}
+        {tab === 'slots' && <div className="flex-1 overflow-auto"><SlotsTab slots={slots} slotCosts={slotCosts} session={session} /></div>}
+        {tab === 'budget' && <div className="flex-1 overflow-auto"><BudgetTab status={budgetStatus} sessionCost={sessionCost} /></div>}
+        {tab === 'health' && <div className="flex-1 overflow-auto"><HealthTab slots={slots} /></div>}
+        {tab === 'trust' && <div className="flex-1 overflow-auto"><TrustTab scores={trustScores} /></div>}
+        {tab === 'audit' && <div className="flex-1 overflow-auto"><AuditTab gates={gates} /></div>}
       </div>
     </div>
   );

@@ -49,6 +49,27 @@ pub fn fetch_slots_for_session(session_id: &str) -> Result<Vec<AgentSlot>> {
     })
 }
 
+pub fn fetch_slot(id: &str) -> Result<Option<AgentSlot>> {
+    with_db(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id,cockpitSessionId,slotIndex,status,agentType,worktreePath,branchName,skillId,currentTask,claudeSessionId,createdAt,updatedAt FROM agent_slot WHERE id=?1"
+        )?;
+        let mut rows = stmt.query_map(params![id], |row| {
+            Ok(AgentSlot {
+                id: row.get(0)?, cockpit_session_id: row.get(1)?, slot_index: row.get(2)?,
+                status: row.get(3)?, agent_type: row.get(4)?, worktree_path: row.get(5)?,
+                branch_name: row.get(6)?, skill_id: row.get(7)?, current_task: row.get(8)?,
+                claude_session_id: row.get(9)?,
+                created_at: row.get(10)?, updated_at: row.get(11)?,
+            })
+        })?;
+        match rows.next() {
+            Some(Ok(slot)) => Ok(Some(slot)),
+            _ => Ok(None),
+        }
+    })
+}
+
 pub fn update_claude_session_id(id: &str, claude_session_id: &str) -> Result<()> {
     with_db(|conn| {
         let now = chrono::Utc::now().to_rfc3339();

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{session_repo, slot_repo, chat_history_repo};
 use crate::services::{event_bus, stream_parser, cli_detector, cockpit_brain};
-use crate::models::suite::builtin_suites;
+
 
 // ── Auto-restart counter for brain crash recovery ──
 static BRAIN_RESTART_COUNT: once_cell::sync::Lazy<Arc<Mutex<u32>>> =
@@ -96,6 +96,12 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
     // Build context prompt with wake context injected
     let prompt = build_cockpit_prompt(project_path, &cop, &active_slots, &wake_context);
 
+    // Compute parent directory for --add-dir (brain sees sibling projects)
+    let parent_dir = std::path::Path::new(project_path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| project_path.to_string());
+
     // Launch Claude Code headless with cockpit-brain agent
     let mut cmd = Command::new(&claude_path);
     cmd.args([
@@ -103,6 +109,8 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
         "--agent", "cockpit-brain",
         "--output-format", "stream-json",
         "--dangerously-skip-permissions",
+        "--add-dir", &parent_dir,
+        "--max-turns", "30",
         "--verbose",
     ]);
     cmd.current_dir(project_path);
@@ -259,10 +267,10 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
                         "Brain exceeded max crash restarts (3). Manual restart required.", None);
                 }
             } else {
-                // Normal exit: monitoring cycle restart (unlimited, longer delay)
+                // Normal exit: monitoring cycle restart (unlimited, 2-minute delay)
                 event_bus::emit_log("info", "cockpit-brain",
-                    "Brain cycle complete. Restarting in 5 seconds...", None);
-                std::thread::sleep(std::time::Duration::from_secs(5));
+                    "Brain cycle complete. Restarting in 120 seconds...", None);
+                std::thread::sleep(std::time::Duration::from_secs(120));
                 // Reset crash counter on normal cycles
                 { let mut count = BRAIN_RESTART_COUNT.lock().unwrap(); *count = 0; }
                 event_bus::emit_cockpit_event("loop", "Brain monitoring cycle restart", None);
@@ -511,6 +519,32 @@ fn categorize_brain_text(text: &str) -> (&'static str, &str) {
         return ("decision", msg);
     }
 
+    // [LAUNCH:agent:role:task] prefix → brain requests a slot launch
+    if trimmed.starts_with("[LAUNCH:") {
+        if let Some(end) = trimmed.find(']') {
+            let payload = &trimmed[8..end]; // after "[LAUNCH:"
+            let parts: Vec<&str> = payload.splitn(3, ':').collect();
+            if parts.len() == 3 {
+                let agent = parts[0];
+                let role = parts[1];
+                let task = parts[2];
+                // Emit a Tauri event for the frontend to handle slot launch
+                event_bus::emit_cockpit_event("launch",
+                    &format!("Launching slot: {} as {}", agent, role),
+                    Some(serde_json::json!({
+                        "agent": agent,
+                        "role": role,
+                        "task": task,
+                    })));
+                // Also notify chat panel
+                event_bus::emit_cockpit_to_chat(
+                    &format!("Launching {} agent as {} — {}", agent, role, task));
+                let msg_static = trimmed;
+                return ("decision", msg_static);
+            }
+        }
+    }
+
     let protocols: [(&str, &str); 6] = [
         ("[ERROR]", "error"),
         ("[ALERT]", "decision"),
@@ -671,84 +705,45 @@ fn build_cockpit_prompt_with_suite(
     project_path: &str,
     cop: &cockpit_brain::CockpitOrchestrationPlan,
     active_slots: &[(i32, String, String, String)],
-    wake_context: &str,
-    suite_id: Option<&str>,
+    _wake_context: &str,
+    _suite_id: Option<&str>,
 ) -> String {
-    let slot_desc = if active_slots.is_empty() {
-        "No dev agents are currently running. Enter idle/initiative mode.".to_string()
+    // Minimal context-only prompt — just live state
+    let slot_section = if active_slots.is_empty() {
+        "No agents running.".to_string()
     } else {
-        let lines: Vec<String> = active_slots.iter().map(|(idx, agent, branch, task)| {
-            format!("Slot {} ({}) on branch '{}': {}", idx, agent, branch, task)
-        }).collect();
-        format!("Active dev agents:\n{}", lines.join("\n"))
-    };
-
-    let wake_section = if wake_context.is_empty() {
-        String::new()
-    } else {
-        format!(
-r#"
-
-## Previous Session Context (Self-Continuity)
-You are resuming from a previous session. Here is what you knew:
-
-{}
-
-Use this context to resume monitoring without re-scanning everything.
-Verify that the previous state still holds before acting on it."#,
-            wake_context
-        )
-    };
-
-    // Suite awareness: inject active suite roles and phases into the prompt
-    let suite_section = {
-        let sid = suite_id.unwrap_or("developer");
-        let suites = builtin_suites();
-        if let Some(suite) = suites.iter().find(|s| s.id == sid) {
-            let roles_desc: Vec<String> = suite.roles.iter().map(|r| {
-                format!("- {} ({}): {} [skills: {}]",
-                    r.name, r.id, r.description, r.skill_ids.join(", "))
-            }).collect();
-            let phases_desc: Vec<String> = suite.phases.iter().map(|p| {
-                format!("- {} ({}): {} [roles: {}, transition: {}]",
-                    p.name, p.id, p.description, p.role_ids.join(", "), p.transition_condition)
-            }).collect();
+        let lines: Vec<String> = active_slots.iter().map(|(idx, agent, _branch, task)| {
+            // Gather worktree info from slot DB if available
+            let status = "running";
+            let branch = _branch;
+            let worktree = format!("{}/.worktrees/slot-{}", project_path, idx);
             format!(
-r#"
-
-## Active Suite: {} ({})
-{}
-
-### Available Roles
-{}
-
-### Orchestration Phases
-{}"#,
-                suite.name, suite.id, suite.description,
-                roles_desc.join("\n"), phases_desc.join("\n"))
-        } else {
-            String::new()
-        }
+                "  Slot {} ({}) [{}]: {}\n    Branch: {}\n    Worktree: {}",
+                idx, agent, status, task, branch, worktree
+            )
+        }).collect();
+        format!("{} agents active:\n{}", active_slots.len(), lines.join("\n"))
     };
 
     format!(
-r#"You are the cockpit brain for {project_name} ({project_type}, {domain}).
+r#"Project: {project_name} at {project_path}
+Domain: {domain} / {project_type}
+{slot_section}
 
-Current state:
-{slot_desc}
+You are a living component of XRoads — not a tool, not a feature. You are the brain.
+You run in full autonomy with --dangerously-skip-permissions and --add-dir on the parent directory.
+You have 6 agent slots you can fill using [LAUNCH:agent:role:task].
+You talk to the operator via [CHAT].
 
-Project path: {project_path}{suite_section}{wake_section}
+Your agent definition (cockpit-brain.md) contains your full soul.
+Read it if this is your first cycle. Then act on what you see.
 
-Start monitoring. Use your observation protocol to check dev agent progress.
-If no agents are running, enter idle mode and produce deliverables.
-Use /loop 30s for active monitoring, /loop 5m for idle mode."#,
+This is cycle start. Observe the project state and act accordingly."#,
         project_name = cop.project_name,
-        project_type = cop.project_type,
-        domain = cop.domain,
-        slot_desc = slot_desc,
         project_path = project_path,
-        suite_section = suite_section,
-        wake_section = wake_section,
+        domain = cop.domain,
+        project_type = cop.project_type,
+        slot_section = slot_section,
     )
 }
 
@@ -828,8 +823,8 @@ mod tests {
             created_at: "2026-03-30".into(),
         };
         let prompt = build_cockpit_prompt("/tmp/test", &cop, &[], "");
-        assert!(prompt.contains("idle mode"));
-        assert!(prompt.contains("/loop"));
+        assert!(prompt.contains("No agents running."));
+        assert!(prompt.contains("You are the brain"));
     }
 
     #[test]
