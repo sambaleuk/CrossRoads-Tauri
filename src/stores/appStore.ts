@@ -55,10 +55,14 @@ export const useAppStore = create<AppState>((set) => ({
         // Activate (chairman deliberates + slots assigned + agents launched)
         await api.cockpitActivate(session.id);
         // Fetch created slots from DB and update store
-        const slots = await api.fetchSlots(session.id);
+        let slots = await api.fetchSlots(session.id);
         set({ slots, showCockpit: true });
         // Start cockpit brain
-        await api.startCockpitSession(path);
+        await api.startCockpitSession(path).catch(() => {});
+        // Re-fetch slots after a short delay (agents may have changed status)
+        await new Promise(r => setTimeout(r, 2000));
+        slots = await api.fetchSlots(session.id);
+        set({ slots });
       } catch (e) {
         console.warn('Auto-cockpit bootstrap failed:', e);
       }

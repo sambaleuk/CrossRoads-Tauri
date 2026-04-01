@@ -227,27 +227,46 @@ pub fn start_session(project_path: &str) -> Result<CockpitStatus, String> {
         event_bus::emit_cockpit_event("decision",
             &format!("Cockpit brain stopped. Resume ID: {:?}", final_session_id), None);
 
-        // Auto-restart if the exit was unexpected and we haven't exceeded max restarts
-        if was_unexpected {
-            let should_restart = {
-                let mut count = BRAIN_RESTART_COUNT.lock().unwrap();
-                if *count < 3 {
-                    *count += 1;
-                    true
-                } else {
-                    false
-                }
-            };
+        // Auto-restart logic:
+        // - Normal exit (code 0): restart with longer delay (monitoring cycle)
+        // - Error exit: restart with shorter delay (crash recovery), max 3 crashes
+        // - Only restart if the session is still active
+        let session_still_active = session_repo::active_session_for_path(&project_path_owned)
+            .ok().flatten()
+            .map(|s| s.status == "active" || s.status == "initializing")
+            .unwrap_or(false);
 
-            if should_restart {
-                event_bus::emit_log("warn", "cockpit-brain",
-                    "Brain exited unexpectedly. Auto-restarting in 3 seconds...", None);
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                event_bus::emit_cockpit_event("decision", "Brain auto-restarting...", None);
-                let _ = start_session(&project_path_owned);
+        if session_still_active {
+            if was_unexpected {
+                // Crash recovery: max 3 attempts
+                let should_restart = {
+                    let mut count = BRAIN_RESTART_COUNT.lock().unwrap();
+                    if *count < 3 {
+                        *count += 1;
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if should_restart {
+                    event_bus::emit_log("warn", "cockpit-brain",
+                        "Brain crashed. Auto-restarting in 3 seconds...", None);
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    event_bus::emit_cockpit_event("decision", "Brain auto-restarting after crash...", None);
+                    let _ = start_session(&project_path_owned);
+                } else {
+                    event_bus::emit_log("error", "cockpit-brain",
+                        "Brain exceeded max crash restarts (3). Manual restart required.", None);
+                }
             } else {
-                event_bus::emit_log("error", "cockpit-brain",
-                    "Brain exceeded max restart attempts (3). Manual restart required.", None);
+                // Normal exit: monitoring cycle restart (unlimited, longer delay)
+                event_bus::emit_log("info", "cockpit-brain",
+                    "Brain cycle complete. Restarting in 5 seconds...", None);
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                // Reset crash counter on normal cycles
+                { let mut count = BRAIN_RESTART_COUNT.lock().unwrap(); *count = 0; }
+                event_bus::emit_cockpit_event("loop", "Brain monitoring cycle restart", None);
+                let _ = start_session(&project_path_owned);
             }
         }
     });
