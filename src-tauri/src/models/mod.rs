@@ -8,3 +8,4 @@ pub mod cost_event;
 pub mod worktree;
 pub mod orchestration_record;
 pub mod suite;
+pub mod brain_proposal;

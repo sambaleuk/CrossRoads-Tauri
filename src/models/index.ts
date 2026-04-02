@@ -713,3 +713,25 @@ export interface CockpitWakePrompt {
   slotSummaries?: string;
   createdAt: string;
 }
+
+// Brain Proposals (Review Ribbon)
+export type BrainProposalType = 'launch' | 'suite' | 'decision' | 'alert';
+export type BrainProposalStatus = 'pending' | 'approved' | 'rejected' | 'modified' | 'expired';
+
+export interface BrainProposal {
+  id: string;
+  proposalType: BrainProposalType;
+  status: BrainProposalStatus;
+  title: string;
+  detail: string;
+  riskLevel: string;
+  agentType?: string;
+  role?: string;
+  task?: string;
+  suiteId?: string;
+  scannerExcerpt?: string;
+  advisorRationale?: string;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+}

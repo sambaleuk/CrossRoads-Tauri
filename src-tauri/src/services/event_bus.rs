@@ -310,11 +310,17 @@ pub fn categorize_cockpit_text(text: &str) -> &'static str {
 
 pub const EVENT_COCKPIT_TO_CHAT: &str = "cockpit-to-chat";
 pub const EVENT_BRAIN_RESTART_NEEDED: &str = "brain-restart-needed";
+pub const EVENT_BRAIN_PROPOSAL: &str = "brain-proposal";
 
 /// Emit a message from the cockpit brain to the chat panel
 pub fn emit_cockpit_to_chat(content: &str) {
     let payload = serde_json::json!({ "content": content.to_string() });
     emit(EVENT_COCKPIT_TO_CHAT, &payload);
+}
+
+/// Emit a brain proposal requiring operator approval via the Review Ribbon.
+pub fn emit_brain_proposal(proposal: &crate::models::brain_proposal::BrainProposal) {
+    emit(EVENT_BRAIN_PROPOSAL, proposal);
 }
 
 /// Emit a signal that the brain needs to be restarted (for frontend handling)

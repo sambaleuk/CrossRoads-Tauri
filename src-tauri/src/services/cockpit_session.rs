@@ -519,7 +519,7 @@ fn categorize_brain_text(text: &str) -> (&'static str, &str) {
         return ("decision", msg);
     }
 
-    // [LAUNCH:agent:role:task] prefix → brain requests a slot launch
+    // [LAUNCH:agent:role:task] prefix → brain proposes a slot launch (requires operator approval)
     if trimmed.starts_with("[LAUNCH:") {
         if let Some(end) = trimmed.find(']') {
             let payload = &trimmed[8..end]; // after "[LAUNCH:"
@@ -528,20 +528,26 @@ fn categorize_brain_text(text: &str) -> (&'static str, &str) {
                 let agent = parts[0];
                 let role = parts[1];
                 let task = parts[2];
-                // Emit a Tauri event for the frontend to handle slot launch
-                event_bus::emit_cockpit_event("launch",
-                    &format!("Launching slot: {} as {}", agent, role),
-                    Some(serde_json::json!({
-                        "agent": agent,
-                        "role": role,
-                        "task": task,
-                    })));
-                // Also notify chat panel
+                // Create a proposal instead of auto-launching — operator must approve
+                let proposal = crate::models::brain_proposal::BrainProposal::from_launch(agent, role, task);
+                event_bus::emit_brain_proposal(&proposal);
+                // Notify chat panel
                 event_bus::emit_cockpit_to_chat(
-                    &format!("Launching {} agent as {} — {}", agent, role, task));
-                let msg_static = trimmed;
-                return ("decision", msg_static);
+                    &format!("🔔 Proposal: launch {} as {} — {} [awaiting approval]", agent, role, task));
+                return ("decision", trimmed);
             }
+        }
+    }
+
+    // [SUITE:id] prefix → brain proposes a suite switch (requires operator approval)
+    if trimmed.starts_with("[SUITE:") {
+        if let Some(end) = trimmed.find(']') {
+            let suite_id = &trimmed[7..end];
+            let proposal = crate::models::brain_proposal::BrainProposal::from_suite_switch(suite_id);
+            event_bus::emit_brain_proposal(&proposal);
+            event_bus::emit_cockpit_to_chat(
+                &format!("🔔 Proposal: switch to {} suite [awaiting approval]", suite_id));
+            return ("decision", trimmed);
         }
     }
 

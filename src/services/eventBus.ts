@@ -6,6 +6,7 @@ import type {
   GateEventPayload,
   CostUpdatedPayload,
   OrchestrationUpdatePayload,
+  BrainProposal,
 } from '../models';
 
 // Event names (must match Rust event_bus constants)
@@ -17,6 +18,7 @@ export const EVENT_GATE_RESOLVED = 'gate-resolved';
 export const EVENT_COST_UPDATED = 'cost-updated';
 export const EVENT_HEALTH_ALERT = 'health-alert';
 export const EVENT_ORCHESTRATION = 'orchestration-update';
+export const EVENT_BRAIN_PROPOSAL = 'brain-proposal';
 
 // Typed listener helpers
 
@@ -46,6 +48,10 @@ export function onCostUpdated(callback: (payload: CostUpdatedPayload) => void): 
 
 export function onOrchestrationUpdate(callback: (payload: OrchestrationUpdatePayload) => void): Promise<UnlistenFn> {
   return listen<OrchestrationUpdatePayload>(EVENT_ORCHESTRATION, (event) => callback(event.payload));
+}
+
+export function onBrainProposal(callback: (proposal: BrainProposal) => void): Promise<UnlistenFn> {
+  return listen<BrainProposal>(EVENT_BRAIN_PROPOSAL, (event) => callback(event.payload));
 }
 
 // Log buffer with FIFO eviction (US-003)
@@ -93,6 +99,13 @@ export async function initEventListeners(): Promise<void> {
   // Auto-push log events to buffer
   unlistenFns.push(await onLogEntry((entry) => {
     pushLogEntry(entry);
+  }));
+
+  // Auto-route brain proposals to store
+  unlistenFns.push(await onBrainProposal((proposal) => {
+    import('../stores/appStore').then(({ useAppStore }) => {
+      useAppStore.getState().addProposal(proposal);
+    });
   }));
 }
 

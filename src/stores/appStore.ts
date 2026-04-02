@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { CockpitSession, AgentSlot, UsageSummary } from '../models';
+import type { CockpitSession, AgentSlot, UsageSummary, BrainProposal } from '../models';
 
 interface AppState {
   // Project
@@ -37,6 +37,15 @@ interface AppState {
   // Suite system
   activeSuiteId: string;
   setActiveSuiteId: (id: string) => void;
+
+  // Review Ribbon + Brain Proposals
+  showReviewRibbon: boolean;
+  toggleReviewRibbon: () => void;
+  setShowReviewRibbon: (show: boolean) => void;
+  pendingProposals: Record<string, BrainProposal>;
+  addProposal: (proposal: BrainProposal) => void;
+  removeProposal: (id: string) => void;
+  clearProposals: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -93,4 +102,21 @@ export const useAppStore = create<AppState>((set) => ({
 
   activeSuiteId: 'developer',
   setActiveSuiteId: (id) => set({ activeSuiteId: id }),
+
+  showReviewRibbon: false,
+  toggleReviewRibbon: () => set((s) => ({ showReviewRibbon: !s.showReviewRibbon })),
+  setShowReviewRibbon: (show) => set({ showReviewRibbon: show }),
+  pendingProposals: {},
+  addProposal: (proposal) => set((s) => ({
+    pendingProposals: { ...s.pendingProposals, [proposal.id]: proposal },
+    showReviewRibbon: true, // Auto-show ribbon when proposal arrives
+  })),
+  removeProposal: (id) => set((s) => {
+    const { [id]: _, ...rest } = s.pendingProposals;
+    return {
+      pendingProposals: rest,
+      showReviewRibbon: Object.keys(rest).length > 0 ? s.showReviewRibbon : false,
+    };
+  }),
+  clearProposals: () => set({ pendingProposals: {}, showReviewRibbon: false }),
 }));

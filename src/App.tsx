@@ -6,6 +6,7 @@ import { GitPanel } from './views/GitPanel';
 import { CockpitPanel } from './views/CockpitPanel';
 import { CommandPalette, useCommandPalette } from './components/CommandPalette';
 import { ReviewOverlay } from './components/ReviewOverlay';
+import { ReviewRibbon } from './components/ReviewRibbon';
 import { IntelligencePanel } from './views/IntelligencePanel';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher';
 import { SuiteGlowBorder } from './components/SuiteGlowBorder';
@@ -13,7 +14,7 @@ import { useAppStore } from './stores/appStore';
 import { initEventListeners } from './services/eventBus';
 
 export default function App() {
-  const { showCockpit, showInspector, showChat, session, slots, sessionCost } = useAppStore();
+  const { showCockpit, showInspector, showChat, session, slots, sessionCost, showReviewRibbon } = useAppStore();
   const commandPalette = useCommandPalette();
   const [showReview, setShowReview] = useState(false);
   const [showIntelligence, setShowIntelligence] = useState(false);
@@ -48,6 +49,7 @@ export default function App() {
           case 'i': e.preventDefault(); useAppStore.getState().toggleInspector(); break;
           case 'o': e.preventDefault(); useAppStore.getState().toggleChat(); break;
           case 'l': e.preventDefault(); setShowIntelligence(p => !p); break;
+          case 'r': e.preventDefault(); useAppStore.getState().toggleReviewRibbon(); break;
         }
       }
     };
@@ -87,6 +89,8 @@ export default function App() {
           onClose={() => setShowReview(false)}
         />
       )}
+
+      {showReviewRibbon && <ReviewRibbon />}
     </div>
     </SuiteGlowBorder>
   );
