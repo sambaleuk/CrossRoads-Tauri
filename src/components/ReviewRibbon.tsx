@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../stores/appStore';
 import type { BrainProposal } from '../models';
 
-type RibbonTab = 'proposals' | 'files' | 'diffs';
+type RibbonTab = 'proposals' | 'files' | 'preview';
 
 // ── Tree model ──
 
@@ -196,17 +196,24 @@ function fileIconColor(ext: string): string {
 // ── Main component ──
 
 export function ReviewRibbon() {
-  const { pendingProposals, removeProposal, setShowReviewRibbon, projectPath } = useAppStore();
+  const { pendingProposals, removeProposal, setShowReviewRibbon, projectPath, previewURL, agentScreenshots } = useAppStore();
 
   const [tab, setTab] = useState<RibbonTab>('proposals');
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [selectedFile, setSelectedFile] = useState<{ path: string; rel: string; name: string } | null>(null);
   const [fileContent, setFileContent] = useState('');
-  const [diffContent, setDiffContent] = useState('');
+  const [oldFileContent, setOldFileContent] = useState('');
   const [searchText, setSearchText] = useState('');
   const [loadingFile, setLoadingFile] = useState(false);
+  const [modifiedFiles, setModifiedFiles] = useState<Set<string>>(new Set());
+  const [gitBranch, setGitBranch] = useState('');
+  const [gitLastCommit, setGitLastCommit] = useState('');
+  const [localPreviewURL, setLocalPreviewURL] = useState(previewURL || 'http://localhost:3000');
   // Force re-render on expand/collapse
   const [, setTreeVersion] = useState(0);
+
+  // Sync preview URL from store
+  useEffect(() => { if (previewURL) setLocalPreviewURL(previewURL); }, [previewURL]);
 
   const proposals = useMemo(() =>
     Object.values(pendingProposals).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
@@ -218,11 +225,21 @@ export function ReviewRibbon() {
   useEffect(() => {
     if (!projectPath) return;
     loadFileTree(projectPath);
+    loadGitInfo(projectPath);
   }, [projectPath]);
 
-  useEffect(() => {
-    if (tab === 'diffs' && projectPath && !diffContent) loadDiff(projectPath);
-  }, [tab, projectPath]);
+  const loadGitInfo = async (path: string) => {
+    try {
+      const branch = await invoke<string>('run_shell_command', { command: `cd "${path}" && git branch --show-current 2>/dev/null` }).catch(() => '');
+      const commit = await invoke<string>('run_shell_command', { command: `cd "${path}" && git log --oneline -1 2>/dev/null` }).catch(() => '');
+      const status = await invoke<string>('run_shell_command', { command: `cd "${path}" && git status --porcelain 2>/dev/null` }).catch(() => '');
+      setGitBranch(branch.trim());
+      setGitLastCommit(commit.trim());
+      setModifiedFiles(new Set(
+        status.split('\n').filter(l => l.length > 3).map(l => l.slice(3).trim())
+      ));
+    } catch { /* optional */ }
+  };
 
   const loadFileTree = async (path: string) => {
     try {
@@ -247,26 +264,24 @@ export function ReviewRibbon() {
   const loadFileContent = async (path: string, rel: string, name: string) => {
     setLoadingFile(true);
     setSelectedFile({ path, rel, name });
+    setOldFileContent('');
     try {
       const content = await invoke<string>('run_shell_command', {
         command: `cat "${path}" 2>/dev/null | head -2000`,
       });
       setFileContent(content);
+
+      // If file is modified, get HEAD version for split diff
+      if (modifiedFiles.has(rel) && projectPath) {
+        const old = await invoke<string>('run_shell_command', {
+          command: `cd "${projectPath}" && git show "HEAD:${rel}" 2>/dev/null`,
+        }).catch(() => '');
+        setOldFileContent(old);
+      }
     } catch {
       setFileContent('Error reading file');
     }
     setLoadingFile(false);
-  };
-
-  const loadDiff = async (path: string) => {
-    try {
-      const diff = await invoke<string>('run_shell_command', {
-        command: `cd "${path}" && git diff --stat --patch 2>/dev/null || echo "Not a git repository"`,
-      });
-      setDiffContent(diff);
-    } catch {
-      setDiffContent('Error running git diff');
-    }
   };
 
   const handleApprove = useCallback(async (proposal: BrainProposal) => {
@@ -301,10 +316,10 @@ export function ReviewRibbon() {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 bg-gray-800/80 border-b border-gray-700/50">
           <div className="flex gap-1">
-            {(['proposals', 'files', 'diffs'] as RibbonTab[]).map(t => (
+            {(['proposals', 'files', 'preview'] as RibbonTab[]).map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-mono font-medium transition-colors ${tab === t ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'}`}>
-                <span className="text-[10px]">{t === 'proposals' ? '🧠' : t === 'files' ? '📁' : '↔'}</span>
+                <span className="text-[10px]">{t === 'proposals' ? '🧠' : t === 'files' ? '📁' : '🌐'}</span>
                 <span>{t.charAt(0).toUpperCase() + t.slice(1)}</span>
                 {t === 'proposals' && proposals.length > 0 && (
                   <span className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold">{proposals.length}</span>
@@ -350,8 +365,24 @@ export function ReviewRibbon() {
           {/* Main */}
           <div className="flex-1 overflow-auto">
             {tab === 'proposals' && <ProposalsContent proposals={proposals} onApprove={handleApprove} onReject={handleReject} />}
-            {tab === 'files' && <FileViewer file={selectedFile} content={fileContent} loading={loadingFile} />}
-            {tab === 'diffs' && <DiffViewer diff={diffContent} />}
+            {tab === 'files' && (
+              <FileViewerWithDiff
+                file={selectedFile}
+                content={fileContent}
+                oldContent={oldFileContent}
+                loading={loadingFile}
+                isModified={selectedFile ? modifiedFiles.has(selectedFile.rel) : false}
+                gitBranch={gitBranch}
+                gitLastCommit={gitLastCommit}
+              />
+            )}
+            {tab === 'preview' && (
+              <PreviewTab
+                url={localPreviewURL}
+                onURLChange={setLocalPreviewURL}
+                agentScreenshot={Object.values(agentScreenshots)[0]}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -526,7 +557,10 @@ function timeAgo(dateStr: string) {
 
 // ── FileViewer with rendering engine ──
 
-function FileViewer({ file, content, loading }: { file: { path: string; rel: string; name: string } | null; content: string; loading: boolean }) {
+function FileViewerWithDiff({ file, content, oldContent, loading, isModified, gitBranch, gitLastCommit }: {
+  file: { path: string; rel: string; name: string } | null; content: string; oldContent: string;
+  loading: boolean; isModified: boolean; gitBranch: string; gitLastCommit: string;
+}) {
   if (loading) return <div className="flex items-center justify-center h-full text-gray-500 text-[11px] font-mono">Loading...</div>;
   if (!file) return (
     <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -540,20 +574,36 @@ function FileViewer({ file, content, loading }: { file: { path: string; rel: str
 
   return (
     <div className="flex flex-col h-full">
+      {/* Git info bar */}
+      {(gitBranch || gitLastCommit) && (
+        <div className="flex items-center gap-2 px-4 py-1 bg-gray-800/40 text-[9px] font-mono">
+          {gitBranch && <><span className="text-green-400">⎇</span><span className="text-green-400 font-semibold">{gitBranch}</span></>}
+          {gitLastCommit && <><span className="text-gray-600">•</span><span className="text-gray-500 truncate">{gitLastCommit}</span></>}
+        </div>
+      )}
+      {/* File path header */}
       <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/60 border-b border-gray-700/50">
         <span className={`text-[10px] ${fileIconColor(ext)}`}>📄</span>
         <span className="text-[11px] font-mono font-medium text-gray-300">{file.rel}</span>
+        {isModified && (
+          <span className="px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 text-[8px] font-bold font-mono">MODIFIED</span>
+        )}
         <span className="text-[9px] font-mono text-gray-600 ml-auto">{lineCount} lines</span>
       </div>
-      <div className="flex-1 overflow-auto p-4">
-        {ext === 'md' || ext === 'markdown' ? (
-          <MarkdownRenderer content={content} />
-        ) : SUPPORTED_LANGS.has(ext) ? (
-          <SyntaxHighlightedCode content={content} lang={mapLang(ext)} />
-        ) : (
-          <PlainCodeWithLineNumbers content={content} />
-        )}
-      </div>
+      {/* Content: split diff or normal */}
+      {isModified && oldContent ? (
+        <SplitDiffViewer oldContent={oldContent} newContent={content} ext={ext} />
+      ) : (
+        <div className="flex-1 overflow-auto p-4">
+          {ext === 'md' || ext === 'markdown' ? (
+            <MarkdownRenderer content={content} />
+          ) : SUPPORTED_LANGS.has(ext) ? (
+            <SyntaxHighlightedCode content={content} lang={mapLang(ext)} />
+          ) : (
+            <PlainCodeWithLineNumbers content={content} />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -700,44 +750,118 @@ function inlineMarkdown(text: string): React.ReactElement {
   return <>{parts}</>;
 }
 
-// ── DiffViewer ──
+// ── SplitDiffViewer — side-by-side old/new ──
 
-function DiffViewer({ diff }: { diff: string }) {
-  if (!diff || diff === 'Not a git repository') {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500">
-        <span className="text-3xl mb-2 opacity-30">↔</span>
-        <span className="text-[12px] font-mono">No changes detected</span>
-      </div>
-    );
-  }
+function SplitDiffViewer({ oldContent, newContent, ext }: { oldContent: string; newContent: string; ext: string }) {
+  const oldLines = oldContent.split('\n');
+  const newLines = newContent.split('\n');
+  const maxLines = Math.max(oldLines.length, newLines.length);
+  const gw = String(maxLines).length * 8 + 12;
+  const useSyntax = SUPPORTED_LANGS.has(ext);
+  const lang = mapLang(ext);
 
-  const lines = diff.split('\n');
-  const gw = String(lines.length).length * 8 + 16;
+  const renderLine = (line: string, isDiff: boolean, bgClass: string) => (
+    <div className={`flex py-[1px] px-1 ${isDiff ? bgClass : ''}`}>
+      {useSyntax ? (
+        <span className="text-[11px] font-mono whitespace-pre">
+          {tokenizeLine(line, lang).map((t, j) => (
+            <span key={j} className={TOKEN_COLORS[t.type]}>{t.text}</span>
+          ))}
+        </span>
+      ) : (
+        <span className="text-[11px] font-mono text-gray-200 whitespace-pre">{line || ' '}</span>
+      )}
+    </div>
+  );
 
   return (
-    <div className="p-4 select-text">
-      {lines.map((line, i) => (
-        <div key={i} className={`flex py-[1px] px-1 ${diffLineBg(line)}`}>
-          <span className="text-[10px] font-mono text-gray-600/30 select-none" style={{ width: gw, textAlign: 'right', paddingRight: 6 }}>{i + 1}</span>
-          <span className={`text-[11px] font-mono ${diffLineColor(line)}`}>{line || ' '}</span>
+    <div className="flex flex-1 overflow-hidden">
+      {/* Left: OLD */}
+      <div className="flex-1 flex flex-col border-r border-gray-700/50">
+        <div className="flex items-center gap-1 px-3 py-1 bg-red-500/5 text-[9px] font-mono">
+          <span className="text-red-400/70">⏪</span>
+          <span className="text-red-400/70 font-bold">HEAD (before)</span>
+          <span className="text-gray-600 ml-auto">{oldLines.length} lines</span>
         </div>
-      ))}
+        <div className="flex-1 overflow-auto p-2 select-text">
+          {Array.from({ length: maxLines }, (_, i) => {
+            const line = i < oldLines.length ? oldLines[i] : '';
+            const newLine = i < newLines.length ? newLines[i] : '';
+            return (
+              <div key={i} className="flex">
+                <span className="text-[10px] font-mono text-gray-600/30 select-none" style={{ width: gw, textAlign: 'right', paddingRight: 6 }}>{i + 1}</span>
+                {renderLine(line, line !== newLine, 'bg-red-500/8')}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {/* Right: NEW */}
+      <div className="flex-1 flex flex-col">
+        <div className="flex items-center gap-1 px-3 py-1 bg-green-500/5 text-[9px] font-mono">
+          <span className="text-green-400/70">📝</span>
+          <span className="text-green-400/70 font-bold">Working copy (after)</span>
+          <span className="text-gray-600 ml-auto">{newLines.length} lines</span>
+        </div>
+        <div className="flex-1 overflow-auto p-2 select-text">
+          {Array.from({ length: maxLines }, (_, i) => {
+            const line = i < newLines.length ? newLines[i] : '';
+            const oldLine = i < oldLines.length ? oldLines[i] : '';
+            return (
+              <div key={i} className="flex">
+                <span className="text-[10px] font-mono text-gray-600/30 select-none" style={{ width: gw, textAlign: 'right', paddingRight: 6 }}>{i + 1}</span>
+                {renderLine(line, line !== oldLine, 'bg-green-500/8')}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
-function diffLineColor(line: string) {
-  if (line.startsWith('+++') || line.startsWith('---')) return 'text-gray-400';
-  if (line.startsWith('@@')) return 'text-cyan-400';
-  if (line.startsWith('+')) return 'text-green-400';
-  if (line.startsWith('-')) return 'text-red-400';
-  if (line.startsWith('diff ')) return 'text-yellow-400';
-  return 'text-gray-300';
-}
+// ── PreviewTab — iframe + Agent Vision PIP ──
 
-function diffLineBg(line: string) {
-  if (line.startsWith('+') && !line.startsWith('+++')) return 'bg-green-500/5';
-  if (line.startsWith('-') && !line.startsWith('---')) return 'bg-red-500/5';
-  return '';
+function PreviewTab({ url, onURLChange, agentScreenshot }: { url: string; onURLChange: (url: string) => void; agentScreenshot?: string }) {
+  const [iframeKey, setIframeKey] = useState(0);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* URL bar */}
+      <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/60 border-b border-gray-700/50">
+        <span className="text-[11px] text-gray-500">🌐</span>
+        <input
+          type="text" value={url} onChange={e => onURLChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') setIframeKey(k => k + 1); }}
+          className="flex-1 px-2 py-1 rounded-md bg-gray-700/60 border border-gray-600/40 text-[11px] font-mono text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500/50"
+          placeholder="http://localhost:3000"
+        />
+        <button onClick={() => setIframeKey(k => k + 1)} className="text-gray-400 hover:text-white text-[11px]" title="Refresh">↻</button>
+      </div>
+      {/* Content */}
+      <div className="flex-1 relative">
+        {url ? (
+          <>
+            <iframe key={iframeKey} src={url} className="w-full h-full border-0 bg-white" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" />
+            {/* Agent Vision PIP */}
+            {agentScreenshot && (
+              <div className="absolute bottom-4 right-4 rounded-lg border border-green-500/40 bg-gray-900/90 p-2 shadow-lg">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                  <span className="text-[8px] font-bold font-mono text-green-400">AGENT VISION</span>
+                </div>
+                <img src={`data:image/png;base64,${agentScreenshot}`} alt="Agent screenshot" className="max-w-[320px] max-h-[200px] rounded border border-green-500/20" />
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <span className="text-4xl mb-3 opacity-30">🌐</span>
+            <span className="text-[12px] font-mono">Enter a URL to preview</span>
+            <span className="text-[10px] font-mono text-gray-600 mt-1">e.g. http://localhost:3000</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

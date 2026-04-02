@@ -551,6 +551,16 @@ fn categorize_brain_text(text: &str) -> (&'static str, &str) {
         }
     }
 
+    // [PREVIEW:url] prefix → open URL in the Review Ribbon Preview tab
+    if trimmed.starts_with("[PREVIEW:") {
+        if let Some(end) = trimmed.find(']') {
+            let url = &trimmed[9..end];
+            event_bus::emit_preview_url(url);
+            event_bus::emit_cockpit_to_chat(&format!("Preview: opening {}", url));
+            return ("action", trimmed);
+        }
+    }
+
     let protocols: [(&str, &str); 6] = [
         ("[ERROR]", "error"),
         ("[ALERT]", "decision"),

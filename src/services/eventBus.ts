@@ -19,6 +19,8 @@ export const EVENT_COST_UPDATED = 'cost-updated';
 export const EVENT_HEALTH_ALERT = 'health-alert';
 export const EVENT_ORCHESTRATION = 'orchestration-update';
 export const EVENT_BRAIN_PROPOSAL = 'brain-proposal';
+export const EVENT_PREVIEW_URL = 'preview-url';
+export const EVENT_AGENT_SCREENSHOT = 'agent-screenshot';
 
 // Typed listener helpers
 
@@ -52,6 +54,14 @@ export function onOrchestrationUpdate(callback: (payload: OrchestrationUpdatePay
 
 export function onBrainProposal(callback: (proposal: BrainProposal) => void): Promise<UnlistenFn> {
   return listen<BrainProposal>(EVENT_BRAIN_PROPOSAL, (event) => callback(event.payload));
+}
+
+export function onPreviewURL(callback: (payload: { url: string }) => void): Promise<UnlistenFn> {
+  return listen<{ url: string }>(EVENT_PREVIEW_URL, (event) => callback(event.payload));
+}
+
+export function onAgentScreenshot(callback: (payload: { slotNumber: number; imageData: string }) => void): Promise<UnlistenFn> {
+  return listen<{ slotNumber: number; imageData: string }>(EVENT_AGENT_SCREENSHOT, (event) => callback(event.payload));
 }
 
 // Log buffer with FIFO eviction (US-003)
@@ -105,6 +115,20 @@ export async function initEventListeners(): Promise<void> {
   unlistenFns.push(await onBrainProposal((proposal) => {
     import('../stores/appStore').then(({ useAppStore }) => {
       useAppStore.getState().addProposal(proposal);
+    });
+  }));
+
+  // Auto-route preview URLs to store
+  unlistenFns.push(await onPreviewURL((payload) => {
+    import('../stores/appStore').then(({ useAppStore }) => {
+      useAppStore.getState().setPreviewURL(payload.url);
+    });
+  }));
+
+  // Auto-route agent screenshots to store
+  unlistenFns.push(await onAgentScreenshot((payload) => {
+    import('../stores/appStore').then(({ useAppStore }) => {
+      useAppStore.getState().setAgentScreenshot(payload.slotNumber, payload.imageData);
     });
   }));
 }

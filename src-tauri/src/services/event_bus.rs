@@ -58,6 +58,9 @@ pub fn buffer_pty_output(slot_id: &str, text: &str) {
 
     entry.data.push_str(text);
 
+    // Auto-detect localhost URLs in agent output
+    detect_localhost_url(text);
+
     let should_flush = entry.data.len() >= PTY_FLUSH_SIZE
         || entry.last_flush.elapsed() >= Duration::from_millis(PTY_FLUSH_INTERVAL_MS);
 
@@ -321,6 +324,40 @@ pub fn emit_cockpit_to_chat(content: &str) {
 /// Emit a brain proposal requiring operator approval via the Review Ribbon.
 pub fn emit_brain_proposal(proposal: &crate::models::brain_proposal::BrainProposal) {
     emit(EVENT_BRAIN_PROPOSAL, proposal);
+}
+
+pub const EVENT_PREVIEW_URL: &str = "preview-url";
+pub const EVENT_AGENT_SCREENSHOT: &str = "agent-screenshot";
+
+/// Emit a preview URL for the Review Ribbon's Preview tab.
+pub fn emit_preview_url(url: &str) {
+    let payload = serde_json::json!({ "url": url.to_string() });
+    emit(EVENT_PREVIEW_URL, &payload);
+}
+
+/// Emit an agent screenshot (base64 PNG).
+pub fn emit_agent_screenshot(slot_number: i32, base64_data: &str) {
+    let payload = serde_json::json!({
+        "slotNumber": slot_number,
+        "imageData": base64_data,
+    });
+    emit(EVENT_AGENT_SCREENSHOT, &payload);
+}
+
+/// Detect localhost URLs in text and auto-emit preview URL.
+/// Matches http://localhost:PORT and http://127.0.0.1:PORT patterns.
+pub fn detect_localhost_url(text: &str) {
+    for prefix in &["http://localhost:", "http://127.0.0.1:", "https://localhost:"] {
+        if let Some(start) = text.find(prefix) {
+            let after = &text[start + prefix.len()..];
+            let port_end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+            if port_end > 0 {
+                let url = &text[start..start + prefix.len() + port_end];
+                emit_preview_url(url);
+                return;
+            }
+        }
+    }
 }
 
 /// Emit a signal that the brain needs to be restarted (for frontend handling)

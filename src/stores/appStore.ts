@@ -46,6 +46,12 @@ interface AppState {
   addProposal: (proposal: BrainProposal) => void;
   removeProposal: (id: string) => void;
   clearProposals: () => void;
+
+  // Preview + Agent Vision
+  previewURL: string;
+  setPreviewURL: (url: string) => void;
+  agentScreenshots: Record<number, string>; // slot → base64 PNG
+  setAgentScreenshot: (slot: number, data: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -119,4 +125,11 @@ export const useAppStore = create<AppState>((set) => ({
     };
   }),
   clearProposals: () => set({ pendingProposals: {}, showReviewRibbon: false }),
+
+  previewURL: '',
+  setPreviewURL: (url) => set({ previewURL: url }),
+  agentScreenshots: {},
+  setAgentScreenshot: (slot, data) => set((s) => ({
+    agentScreenshots: { ...s.agentScreenshots, [slot]: data },
+  })),
 }));
