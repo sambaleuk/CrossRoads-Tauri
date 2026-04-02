@@ -12,6 +12,7 @@ import { WorkspaceSwitcher } from './components/WorkspaceSwitcher';
 import { SuiteGlowBorder } from './components/SuiteGlowBorder';
 import { useAppStore } from './stores/appStore';
 import { initEventListeners } from './services/eventBus';
+import { checkForUpdates } from './services/updater';
 
 export default function App() {
   const { showCockpit, showInspector, showChat, session, slots, sessionCost, showReviewRibbon } = useAppStore();
@@ -20,9 +21,10 @@ export default function App() {
   const [showIntelligence, setShowIntelligence] = useState(false);
   const prevSessionStatus = useRef(session?.status);
 
-  // Initialize event listeners on mount
+  // Initialize event listeners + check for updates on mount
   useEffect(() => {
     initEventListeners();
+    checkForUpdates(true); // silent — don't log if no update
   }, []);
 
   // Detect orchestration completion → show review overlay

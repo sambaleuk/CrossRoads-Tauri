@@ -14,6 +14,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Initialize database on app startup
             let app_dir = app.path().app_data_dir().expect("failed to get app data dir");
