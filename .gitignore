@@ -29,8 +29,5 @@ prd-*.json
 model.json
 states.json
 
-# Proprietary
-src-tauri/resources/cockpit-soul.md
-
 # Open-source cleanup
 .claude/
