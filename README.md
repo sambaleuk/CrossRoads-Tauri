@@ -169,7 +169,7 @@ Plus:
 ## Cross-platform
 
 XRoads ships as a native desktop app:
-- **macOS**: Native SwiftUI version at [Nexus-Neurogrid/XRoads](https://github.com/Nexus-Neurogrid/XRoads)
+- **macOS**: Native SwiftUI version at [sambaleuk/CrossRoads](https://github.com/sambaleuk/CrossRoads)
 - **Windows/Linux/macOS**: This Tauri version
 
 Same features, same agent scripts, same ML models. Pick your platform.
@@ -200,8 +200,8 @@ PRs welcome. The bar is: does it help ship code faster?
 
 ## License
 
-TBD
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
 
 ---
 
-Built by [Neurogrid](https://neurogrid.me). Code-shipped, not setup-porned.
+Built by [Neurogrid](https://neurogrid.me) — Open source under Apache 2.0.
